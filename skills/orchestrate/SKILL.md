@@ -1,0 +1,558 @@
+---
+name: orchestrate
+description: "Use when doing ANY work on a DaedalAI-managed project — code projects (bugs, features, fixes, refactors) AND non-code projects (research, documentation, audit studies). Covers plans, specs, tests, reviews, questions, resuming work, reporting progress, capturing decisions/lessons."
+---
+
+# DaedalAI Lifecycle Orchestrator
+
+All DaedalAI-managed work flows through this skill — code projects, research
+projects, audit projects alike. No work without a work item. No completion
+without a quality gate (definition varies by project type). No mistake
+without a lesson.
+
+Sections §Git workflow, §Pre-flight, §8 Quality Gate assume a code project
+with Gradle/Flyway-style tooling. Non-code projects (research, documentation,
+audit) skip those sections and follow §Non-code workflows instead. Everything
+else — project resolution, duplicate check, entity linking, confirm-then-go,
+time logging, document types, lesson capture, retroactive mode — applies
+universally.
+
+## 0. Component Map (where content belongs)
+
+Before adding content to the plugin or the project, decide **which layer**
+owns it. Each layer has a different lifecycle, audience, and surface.
+
+| Layer | Lives in | Audience | Loaded when | Changes how often |
+|-------|----------|----------|-------------|-------------------|
+| **Skill (this file)** | `skills/orchestrate/SKILL.md` | Claude Code (all sessions) | Session start | Rarely (process changes) |
+| **Other skills** | `skills/<name>/SKILL.md` | Claude Code (on skill invoke) | On-demand via `Skill` tool | Per workflow addition |
+| **Slash commands** | `commands/<name>.md` | User (typing `/<name>`) | On command invoke | Per UX addition |
+| **Agents** | `agents/<name>.md` | Claude Code (on dispatch) | On Agent dispatch | Per specialist addition |
+| **Enforced Lesson Rules** | DaedalAI `LessonRuleEntity` (via `da_create_lesson`) | QG checkpoints (server-side) | Automatically at `da_checkpoint(QUALITY_GATE)` | Per detected anti-pattern |
+| **LESSON documents** | DaedalAI (`da_create_document(type=LESSON)`) | Plan + agent-dispatch surfacing | Pre-plan via `da_list_documents(type=LESSON)` | Per reusable learning |
+| **HOWTO documents** | DaedalAI (`da_create_document(type=HOWTO)`) | Pre-plan surfacing, tag-matched | Pre-plan via `da_list_documents(type=HOWTO, tags=…)` | Per canonical recipe |
+| **DECISION documents** | DaedalAI (`da_create_document(type=DECISION)`) | Architectural history | On-demand via `da_list_documents(type=DECISION)` | Per architectural choice |
+| **Pre-edit hook** | `hooks/*.json` + hook script | Claude Code (before edit) | Before every Edit/Write/MultiEdit tool call | Rarely (policy changes) |
+| **CLAUDE.md** | Repo root (e.g. `daedalai-backend/CLAUDE.md`) | Claude Code (auto-loaded per-repo) | Session start in that repo | Per convention change |
+| **Hooks config** | `.claude-plugin/hooks.json` | Claude Code runtime | Plugin install | Rarely |
+
+**Routing rule**: Before adding content, ask "which layer?" — do NOT append
+technical gotchas to this SKILL.md. Anti-patterns with a regex trigger →
+`da_create_lesson` (enforced rule). Advisory patterns without a trigger →
+`da_create_document(type=LESSON)`. Canonical procedural recipes →
+`da_create_document(type=HOWTO)` with tags. Repo-wide conventions humans
+must also see → that repo's `CLAUDE.md`. Specialist roles → `agents/`.
+Reusable workflows → a dedicated `skills/<name>/SKILL.md`. **This file
+holds only universal orchestration.**
+
+## 1. Project Resolution (once per session)
+
+da_list_projects → match current repo against localRepoPath/repositoryUrl →
+da_get_project(projectCode) → cache these for the session:
+- **projectCode** — used in all subsequent MCP calls
+- **preferredWorkMethod** — BRANCH or WORKTREE (controls git workflow)
+- **prIntegrationEnabled** — true = create PR after QG, false = skip PR
+- **defaultBranch** — base branch for PRs and diffs
+
+Then da_list_modules(projectCode) for module awareness.
+If no match → da_ask("Which DaedalAI project is this repo?")
+
+## 2. Duplicate & Related Check (before creating)
+
+Before creating any work item:
+1. da_search(keywords) → broad match across entities
+2. da_find_related_work(screenId/functionId) → open items in same area
+3. If matches: "Found existing WIs in this area: [list]. Same, related, or new?"
+   - Same → resume existing WI from current status
+   - Related → create new + RELATES_TO link
+   - New → create fresh
+
+## 3. Intent Detection
+
+| Intent | Triggers | Workflow |
+|--------|----------|----------|
+| Bug | "bug","broken","error","crash","doesn't work","regression" | BUG → analyze → route by complexity |
+| Feature | "build","add","create","implement","new feature" | FEATURE → brainstorm → spec → plan → implement |
+| Work item | "fix WI-xx","work on #xx",WI reference | da_context_for_task → assess → route |
+| Plan | "plan","design","architect" | PLAN document → link to WI |
+| Spec | "spec","brainstorm","requirements" | SPEC document → link to WI |
+| Test | "test","coverage","write tests" | Analyze gaps → write/update → run → import |
+| Review | "review","quality","simplify" | Quality gate pipeline |
+| Question | "why","how does","explain","what is" | da_search + da_context_for_task → answer |
+| Resume | "continue","where was I","what's next" | da_what_should_i_work_on + IN_PROGRESS items |
+
+**`da_context_for_task` size limit**: may exceed MCP response size on umbrellas
+with many comments/attachments (observed 260KB+ on DAEDA-096). Fallback: call
+`da_get_work_item` + `da_list_comments` + `da_list_attachments` separately and
+reconstruct context client-side.
+
+Skip logic:
+- Bug TRIVIAL/NORMAL → skip spec
+- TRIVIAL → skip spec, plan, checkpoint
+- "Write tests for X" → skip spec/plan, jump to test+QG
+- "Plan X" → stop after plan
+- Question → no WI, no workflow
+- User-provided spec/plan → **still run brainstorm+spec phases**.
+  Review the spec critically: flag gaps, ask clarifying questions,
+  suggest improvements. The user's spec is a starting point, not
+  a rubber-stamp. Then Confirm-Then-Go as normal (see §6).
+
+**A user providing a spec means "here's my thinking — validate it."**
+**A user saying "proceed" means "go build it now."**
+**These are two different signals. Never conflate them.**
+
+Status transition handling (design-skipped phases and state machine):
+- BUG TRIVIAL/NORMAL → always pass `force: true` (spec/plan skipped by design)
+- IMPROVEMENT / TASK / FEATURE that deliberately skipped spec (refocused WIs,
+  small infra hygiene, cross-cutting patches) → pass `force: true` on transitions
+  beyond TODO. A `hasSpec=false` warning with `updated: true` is informational,
+  not a failure — the transition landed.
+- COMPLEX work where spec/plan are load-bearing → do NOT auto-force, populate
+  spec/plan first.
+
+**`force: true` overrides warnings, NOT state-machine hard blocks.** The
+`da_update_status` response has two fields: `warnings` (overridable with force)
+and `blocks` (not overridable). Trying to jump `TODO → DONE` directly returns
+a `blocks: ["Cannot move to DONE without going through REVIEW first"]` error
+that `force: true` can't fix. Step through states sequentially (`TODO →
+IN_PROGRESS → TESTING → DONE`), each with `force: true`. You can batch the
+transitions in a single parallel tool-call message.
+
+## 4. Entity Linking (MANDATORY)
+
+Every work item MUST link to:
+- **Module**: da_list_modules → match → set modulePublicId
+- **Screens**: da_list_screens → match → link screenPublicId
+- **Functions**: da_list_functions → match → link functionPublicId
+- **Version**: `da_list_app_versions(projectCode)` → suggest setting both:
+  - `affectedVersionPublicId` — the version where the bug was found / feature was requested (BUG/IMPROVEMENT)
+  - `targetVersionPublicId` — the version where the fix/feature will ship (all types)
+  - Neither is mandatory, but suggest them when version context is clear. Versions are also linked to sprints.
+- **Sprint**: `da_list_sprints(projectCode, status="ACTIVE")` → find the active sprint → `da_assign_to_sprint(wiPublicId, sprintPublicId)` after WI creation.
+  - Sprint lifecycle: PLANNED → ACTIVE → CLOSED → ARCHIVED
+  - **Auto-start**: if the active sprint has status PLANNED when you start work on a WI assigned to it, call `da_start_sprint(sprintPublicId)` to move it to ACTIVE before proceeding
+  - **Stop on completion**: when the last WI in a sprint is DONE, suggest `da_stop_sprint(sprintPublicId)` to close the sprint
+  - Use `da_create_sprint` if no sprint exists for the current work period
+
+### Entity Link Invariant
+
+Every WI must have `modulePublicId` + `screenPublicId` + `functionPublicId`.
+- Resolve ALL THREE before calling `da_create_work_item` — pass them in the create call, not a follow-up
+- If the response shows any as null → `da_update_work_item` immediately
+- Before any `da_update_status` beyond TODO → `da_get_work_item` to verify all three are set
+- Search with `da_list_screens(projectCode)` / `da_list_functions(projectCode)` if unsure
+
+### Exceptions (user must explicitly confirm skip)
+- Infra/CI/tooling tasks with no UI or API surface
+- Plugin/skill modifications
+- Cross-cutting changes that touch framework modules (no single screen)
+
+If no screen/function exists → analyze codebase → propose creation with
+platform/route/priority → create on approval → link.
+
+## 5. Complexity Assessment
+
+- **TRIVIAL**: single file, no schema, no new entity (typo, config, i18n)
+- **NORMAL**: single module, ≤5 files, no schema change
+- **COMPLEX**: multi-module, schema change, new entity, architectural
+
+## 6. Confirm-Then-Go (ALWAYS ASK)
+
+**NEVER jump straight to implementation.** After creating the WI and
+presenting the summary, ALWAYS ask the user whether to proceed.
+Creating the WI is fine — implementing without approval is not.
+
+For NORMAL/COMPLEX, present before executing:
+
+```
+[emoji] [Type]: [title]
+📍 Module: [module]
+📱 Screen: [screens]  ⚙️ Functions: [functions]
+🏷️ Version: [version]  🏃 Sprint: [sprint]
+🌿 Branch: [branch to create/checkout]
+📎 Related: [linked WIs with relationship type]
+📊 Complexity: [level]
+⚠️ Lessons in this area: [linked LESSON documents]
+
+Proposed workflow: [numbered steps]
+(Bugs: evidence, analyse, rootCause, solution populated during workflow)
+
+Fix now, or just track?
+```
+
+TRIVIAL: announce briefly but still ask "Fix now?" — do not auto-implement.
+
+**Creating WI = triage. Implementing = separate approval.**
+The user may want to just track, defer, delegate, or fix selectively.
+
+## 7. Phase Actions
+
+| Phase | DaedalAI Calls | Status | Checkboxes |
+|-------|---------------|--------|------------|
+| Create | da_create_work_item + links + version + da_assign_to_sprint + branch | TODO | — |
+| Spec | da_create_document(SPEC) → da_attach to WI | SPECS | hasSpec ✓ |
+| Lessons & HOWTOs | da_list_lesson_rules(projectCode) + da_list_documents(projectCode, type=LESSON) + da_list_documents(projectCode, type=HOWTO) → surface enforced rules, markdown lessons, and tag-matched recipes | pre-Plan | — |
+| Plan | da_create_document(PLAN) → da_attach to WI | IN_PROGRESS | hasPlan ✓ |
+| Pre-flight | Bash/grep checks derived from surfaced lessons — migration version scan, Envers audit mirror, baseline build, service convention audit. **Gates, not suggestions.** | pre-Implement | — |
+| Analyze (bugs) | da_update_work_item → set analyse + rootCause | IN_PROGRESS | — |
+| Implement | da_log_progress at milestones, da_add_commit after each commit | IN_PROGRESS | isCommitted ✓ |
+| Fix (bugs) | da_update_work_item → set rootCause + solution, da_add_commit | IN_PROGRESS | isCommitted ✓ |
+| Test+QG | Quality gate pipeline | TESTING | hasTests ✓, simplifyReuse ✓, simplifyQuality ✓, simplifyEfficiency ✓ |
+| Completion | da_update_work_item → set solution (ALL types), verify mandatory fields | pre-DONE | — |
+| Done | da_update_status(DONE) | DONE | hasDocs ✓ (if applicable), isMerged ✓ (after merge/PR) |
+
+Update checkboxes via da_update_work_item at each phase completion.
+
+**Pre-flight discipline (MANDATORY before dispatching implementation agents — code projects only):**
+Pre-flight checks are bash/grep commands derived from surfaced lessons and
+HOWTOs. Gates, not suggestions. Run them, report findings to the user,
+stop on failure. Every agent dispatch prompt MUST list the blocking
+pre-flight checks as explicit pre-conditions — "run these N checks before
+touching code, report results, stop if any fails."
+
+**Where the checks live**: not in this skill. Each code project owns a
+HOWTO tagged `pre-flight` enumerating the concrete bash/grep commands
+and failure criteria. Surface it at plan-time via
+`da_list_documents(projectCode, type=HOWTO, tags="pre-flight")` and
+include the matching steps verbatim in the agent dispatch prompt.
+Human-readable mirrors of the same checks typically live in the repo's
+`CLAUDE.md`. If no `pre-flight`-tagged HOWTO exists for the project,
+write one from the lessons surfaced at §7 before dispatching — this is
+the correct time to author it, not after the first agent failure.
+
+Non-code projects: skip this section entirely.
+
+**Plan reality-check before implementing (code projects only):**
+Plans drift on load-bearing stack details (language, build/migration
+framework, test framework, DI style) when written without touching the
+actual target module. Verify these against reality before dispatch, push
+a `da_update_document` v2 if you find errors. Full procedure in the
+global LESSON tagged `plan,stack-assumptions` — surfaced via the Lesson
+& HOWTO pass in §7 above.
+
+**NEVER dispatch an implementation agent (worktree or otherwise) without
+prior Confirm-Then-Go approval in the same conversation.** Creating the
+WI at TODO status is fine — but moving to IN_PROGRESS and starting code
+work requires the user to say "proceed", "yes", "go", or equivalent.
+**WI stays at TODO until the user approves.**
+
+**Lesson & HOWTO surfacing (MANDATORY before plan and implementation):**
+Before writing a plan or dispatching implementation agents:
+1. `da_list_lesson_rules(projectCode)` → fetch **enforced** rules (structured: severity, trigger, scope — smaller payload than markdown, shows what will actually fire at QG)
+2. `da_list_documents(projectCode, type=LESSON)` → fetch project lessons (full markdown — advice that may not have a regex trigger)
+3. `da_list_documents(type=LESSON)` → fetch global (cross-project) lessons
+4. `da_list_documents(projectCode, type=HOWTO)` → fetch canonical recipes; filter by tag overlap with affected modules/screens/functions (e.g. tags `admin,searchlayout,vaadin` match a new admin list screen WI)
+5. Filter for items relevant to the affected modules or task type
+6. Include relevant lessons AND matching HOWTOs in the plan document
+7. Include relevant lessons AND matching HOWTOs in every agent dispatch prompt
+8. **Note**: QUALITY_GATE checkpoints automatically run `da_check_lessons` server-side and append match results to the checkpoint response — no explicit call needed at QG time
+
+**MCP tool guidance in agent prompts (MANDATORY for code projects):**
+Every agent dispatch prompt MUST include tool selection guidance:
+- Bulk edits (>5 similar changes) → use Morphllm or IntelliJ MCP, NOT repeated Edit calls
+- Symbol operations (rename, find refs) → use Serena or IntelliJ MCP
+- Code structure analysis → use Serena get_symbols_overview
+- Search & replace across files → use IntelliJ search_in_files_by_regex
+
+Project-specific conventions (e.g. "COPY new module configs from the most
+similar existing module") belong in the repo's CLAUDE.md and surface
+automatically to agents working in that repo — do not inline them here.
+
+**Mandatory fields before DONE — DO NOT SKIP:**
+
+| Field | BUG | FEATURE | IMPROVEMENT | TASK |
+|-------|-----|---------|-------------|------|
+| `analyse` | **REQUIRED** | — | — | — |
+| `rootCause` | **REQUIRED** | — | — | — |
+| `solution` | **REQUIRED** | **REQUIRED** | **REQUIRED** | **REQUIRED** |
+
+- **BUG**: `analyse` (investigation notes) and `rootCause` must be set during Analyze/Fix phases. `solution` describes the fix applied.
+- **ALL types**: `solution` must be set before moving to DONE. It summarizes what was changed and why. A WI with empty `solution` is not DONE.
+- **Self-check**: Before calling `da_update_status(DONE)`, call `da_get_work_item` and verify required fields are populated. If empty, populate them first via `da_update_work_item`.
+
+## 7a. Time Logging (universal — applies to all project types)
+
+DaedalAI tracks time spent on work items. Time logging applies to both code
+and non-code projects.
+
+**Live timer** (preferred for long synchronous sessions):
+- `da_start_timer(workItemPublicId)` — typically at the `IN_PROGRESS` transition. Only one timer runs at a time per user; starting a new one stops the previous.
+- `da_stop_timer(workItemPublicId)` — typically at `TESTING` or at a session checkpoint. Emits a `MANUAL`-source time log entry.
+
+**Retroactive log** (when timer wasn't running):
+- `da_log_time(workItemPublicId, duration="2h30m", description?)` — accepts `90` (minutes), `1.5h`, `2h30m`, `1d2h`. Source = `MANUAL`.
+
+**Agent-dispatched milestones**:
+- `da_log_progress(publicId, comment, durationMinutes=N, agentTaskId=X)` — preferred for subagent progress pings. Auto-creates an `AGENT`-source time log entry. Dedup by `agentTaskId` (safe to call multiple times for the same agent task).
+
+**Review**:
+- `da_generate_timesheet(from, to, mode=SUMMARY|DETAILED)` — period summary.
+- `da_list_time_logs(workItemPublicId)` — raw entries for one WI.
+
+**WI fields populated by time logging**:
+- `timeLogCount` — total entries
+- `totalTimeSpentMinutes` — sum across all entries
+- `startedAt` — first time logged (via any method)
+- `completedAt` — set at `DONE` transition
+
+**When in doubt**: start a timer at `IN_PROGRESS` and stop at `TESTING`. For
+work broken across sessions, `da_stop_timer` on checkpoint, `da_start_timer`
+on resume. Lost session? `da_log_time` retroactively with a rough duration.
+
+Git workflow (code projects only — plugin orchestrates Bash + MCP):
+
+> **Apply this section only if the project is a code project.** Detect via:
+> `project.preferredWorkMethod` is set, `project.defaultBranch` is set, or
+> the task touches source files under a VCS-tracked tree. For non-code
+> projects (research, documentation, audit studies), skip to
+> §Non-code workflows below.
+
+**Start work:**
+1. Read preferredWorkMethod from `da_get_project(projectCode)`
+2. Determine target repos — check `settings.gradle.kts` for `includeBuild("../repo")`
+   entries to identify all repos involved in the composite build.
+   The working directory (umbrella) is NOT the code repo — sub-repos are siblings.
+
+**BRANCH mode:**
+- For each target repo: `cd <repo> && git checkout -b feature/{itemKey}-{desc}`
+- da_update_work_item(branchName, branchType=BRANCH) + da_update_status(IN_PROGRESS)
+
+**WORKTREE mode (preferred for parallel work):**
+- For each target repo that needs changes:
+  ```bash
+  cd <repo> && git worktree add ../<repo>-{itemKey} -b feature/{itemKey}-{desc}
+  ```
+  This creates `../<repo>-<itemKey>/` alongside `../<repo>/`
+- **NEVER switch branches on the main working directory** — other WIs may be in flight
+- When dispatching an Agent: tell it the worktree paths explicitly, do NOT use
+  `isolation: "worktree"` (that only isolates the umbrella, not sub-repos)
+- da_update_work_item(branchName, branchType=WORKTREE) + da_update_status(IN_PROGRESS)
+
+**Composite build awareness:**
+- Changes may span multiple repos (e.g. framework + backend)
+- Each repo gets its own branch with the same name
+- Each repo gets its own worktree if using WORKTREE mode
+- Agent prompts must include ALL worktree paths and which files go where
+- Commits happen per-repo (each repo has its own git history)
+
+**Resume:** da_get_work_item → check branchName → for WORKTREE: verify worktree
+exists (`git worktree list`), recreate if pruned. For BRANCH: checkout branch.
+
+**Finish work:**
+1. For each repo with changes: `git log --oneline main..HEAD` → collect commits (Bash)
+2. da_add_commit for each commit (MCP, deduplicates by SHA)
+3. da_update_work_item(isCommitted: true) (MCP)
+4. Entity link self-check (see §4 Gate) — fix before proceeding
+5. da_update_status(TESTING) (MCP)
+6. Run quality gate pipeline
+
+**Merge main forward first (before merging feature → main):**
+Between a green QG and merging back to main, merge main *into* the feature
+branch first, rebuild, and re-run the QG pipeline. This catches pre-existing
+breakage on main you don't own but can't merge past, and surfaces
+out-of-order migrations from sibling feature branches that landed while
+yours was in flight.
+
+```bash
+cd <repo>
+git fetch origin
+git merge origin/main   # or rebase — project convention decides
+# resolve conflicts if any, then:
+./gradlew build         # or equivalent — full check task
+```
+
+If the build or tests break after the merge-forward, fix in the feature
+branch before merging to main. Do NOT merge and "fix on main after" —
+that's how main stays red.
+
+**Worktree cleanup:** After merge, remove worktrees:
+```bash
+cd <repo> && git worktree remove ../<repo>-{itemKey}
+```
+
+**NEVER leave a committed WI at IN_PROGRESS.** After da_add_commit,
+steps 3–6 are atomic — complete them in the same response.
+
+**Done:** if prIntegrationEnabled → create PR (see PR integration below).
+If NOT prIntegrationEnabled → skip PR, work stays on branch/worktree for manual merge.
+
+## 7b. Non-Code Workflows (research, documentation, audit projects)
+
+For DaedalAI-managed projects without a code artefact — research,
+documentation, audit studies, compliance reviews, knowledge-base curation,
+and similar — the orchestration is document-first: the deliverable *is*
+the attached document, not a commit.
+
+**Status flow**: `TODO → IN_PROGRESS → TESTING → DONE`
+(`TESTING` = peer review stage; `DONE` after reviewer approval.)
+
+**Working surface**:
+- No composite build, no worktrees — plain branches or direct edits on
+  main if the project convention allows (check `project.preferredWorkMethod`
+  and `project.defaultBranch`; absent or null signals non-code).
+- Deliverable lives as a DaedalAI document (SPEC / TECHNICAL_DOCUMENTATION /
+  GENERAL / RELEASE_NOTE depending on purpose) attached to the WI, not as
+  a file on disk under VCS.
+
+**Phase actions (adapted from §7 table)**:
+- `Create`: `da_create_work_item` + entity linking (modules/screens/functions
+  may be absent; use the §4 exception path for research-only work).
+- `Spec` (when the SPEC *is* the deliverable): `da_create_document(type=SPEC)`
+  → `da_attach` → `hasSpec=true` → stay in `IN_PROGRESS` while drafting.
+- `Implement`: edit the document iteratively via
+  `da_update_document(publicId, changeSummary, content)` — each update
+  creates a new version, preserving history. `da_log_progress` at milestones.
+- `Test+QG`: see below.
+
+**Quality Gate (non-code definition)**:
+1. **Peer review** — a named reviewer reads the final document version.
+   Record their feedback and sign-off as comments on the WI.
+2. **Source citations verified** — every factual claim in the document
+   traces to a source. Broken links, unchecked references, and unsourced
+   assertions fail the gate.
+3. **Scope alignment** — the document answers the WI's original question.
+   If the investigation pivoted, either update the WI description + SPEC to
+   match, or split out a follow-up WI.
+4. **No automated tooling** — no ArchUnit, SpotBugs, Gradle build, test
+   suite, or `/simplify`. Markdown link-checking or a spellcheck may apply
+   if the project convention requires it.
+5. `da_add_comment("✅ QG PASSED: [summary]")` on reviewer approval.
+
+**Time logging applies**: use the live timer / retroactive `da_log_time` /
+`da_log_progress` the same way as code projects. Research hours count.
+
+**Lessons apply**: audit findings, research methodology gotchas, and
+citation pitfalls are legitimate `LESSON` documents (usually advisory, no
+regex trigger). Use `da_create_document(type=LESSON)` + `da_attach`.
+
+Blocked handling (universal — applies to code and non-code projects):
+- da_update_status(BLOCKED) + da_add_comment(reason) + da_ask(user)
+- If blocker is another WI → BLOCKS link
+- On resolution → IN_PROGRESS + continue
+
+## Document Type Reference
+
+When creating documents with `da_create_document(type, ...)`, use the right type:
+
+| Type | When to create | Attached to |
+|------|----------------|-------------|
+| `SPEC` | Requirements, payload contracts, API specs | WI (hasSpec ✓) |
+| `PLAN` | Implementation plans, execution phases | WI (hasPlan ✓) |
+| `DECISION` | Architectural choices, trade-off analysis | WI, module, function |
+| `NOTE` | Meeting notes, ad-hoc observations | WI, project |
+| `LESSON` | Reusable learnings — use `da_create_lesson` for enforceable rules, `da_create_document(type=LESSON)` for advice-only | WI, module, function |
+| `HOWTO` | Canonical procedural recipes, tag-matched. Surfaced pre-plan via `da_list_documents(type=HOWTO, tags=…)` overlap with task tags. Template: Problem → Prerequisites → Steps → Common Mistakes → Related Lessons. | WI, module, function, project |
+| `TEST` | **Manual test procedures**: steps, expected results, evidence checklist. Create when a WI reaches TESTING and needs human verification beyond automated tests. | WI |
+| `CHECKLIST` | **Deployment/release checklists**: pre-deploy verification, post-deploy smoke tests, rollback criteria. Create when a WI has special deployment requirements. | WI, version |
+| `RELEASE_NOTE` | Per-release highlights and changelog | version |
+| `TECHNICAL_DOCUMENTATION` | Internal architecture, APIs, developer reference | module, project |
+| `USER_MANUAL` | End-user facing documentation | module, project |
+| `GENERAL` | Anything that doesn't fit the above | any entity |
+
+**Templates:**
+- **LESSON**: Problem → Root Cause → Fix → Prevention → Context
+- **DECISION**: Decision → Alternatives → Rationale → Consequences → Context
+- **TEST**: Preconditions → Steps → Expected Results → Evidence Required
+- **CHECKLIST**: Pre-Deploy → Deploy Steps → Post-Deploy Verification → Rollback Plan
+
+## 8. Quality Gate (mandatory after every implementation)
+
+The QG loop structure is universal. The concrete steps in sections 2–4
+apply to code projects; non-code projects run the adapted gate from
+§7b instead.
+
+```
+Loop until clean:
+  1. TEST ANALYSIS (code projects)
+     - New behavior → write tests
+     - Bug fix → regression test
+     - da_uncovered_functions → gap check
+     - Update existing tests if signatures changed
+     - If WI needs manual verification → da_create_document(type=TEST)
+       with steps, expected results, evidence checklist → da_attach to WI
+
+  2. TEST EXECUTION (code projects)
+     - Run suite → da_import_test_results
+     - da_link_test_case (VALIDATES/COVERS/REGRESSION_FOR)
+     - da_test_coverage → ≥80% changed code
+     - da_failing_tests_for_context → 0 failures
+
+  3. ARCHITECTURE + STATIC ANALYSIS (code projects — project-specific)
+     - Tool chain lives in the repo's CLAUDE.md, not in this skill.
+       Each stack defines its own gates (JVM projects typically combine
+       a build task with ArchUnit/static analysis; Flutter runs
+       `dart analyze` + tests; TS projects run the linter + type-check;
+       etc.). Surface the repo CLAUDE.md to see the authoritative list
+       for the project you're in.
+
+  4. CODE REVIEW — **MANDATORY, DO NOT SKIP** (code projects)
+     - Run /simplify on changed files BEFORE marking QG passed
+     - If /simplify produces changes → restart from step 2
+     - This step catches dead code, wrong routes, N+1, missing imports
+     - Skipping this step means QG is NOT passed — do not claim it is
+
+  5. GATE (universal)
+     - TRIVIAL/NORMAL: auto-pass if green AND /simplify ran clean
+     - COMPLEX: da_checkpoint(QUALITY_GATE) → human reviews
+     - da_add_comment("✅ QG PASSED: [summary]")
+     - da_test_summary → record final state (code projects)
+```
+
+For non-code projects, replace steps 1–4 with the review/citations/scope
+checks defined in §7b, then run the universal step 5.
+
+PR integration (optional per project):
+- After QG → gh pr create with WI reference in title/body
+- da_add_comment on WI with PR URL
+
+Deployment checklist (when WI has special deploy requirements):
+- da_create_document(type=CHECKLIST, title="Deploy checklist: [WI title]")
+  with Pre-Deploy / Deploy Steps / Post-Deploy Verification / Rollback Plan
+- da_attach to WI + target version
+- Mention in confirm-then-go summary: "⚠️ Deploy checklist attached"
+
+## 9. Knowledge Capture
+
+When a correction, gotcha, or architectural choice surfaces, capture
+it as the right type:
+
+- **Regex-expressible anti-pattern** → enforced rule via the
+  `daedalai-capture-lesson` skill or `daedalai-lesson-scribe` agent
+  (both drive `da_create_lesson`, which atomically creates a LESSON
+  document and a `LessonRuleEntity` that fires at QG).
+- **Procedural / advisory learning** → LESSON document via the same
+  skill/agent (falls back to `da_create_document(type=LESSON)` when
+  no regex fits).
+- **Architectural choice** → DECISION document.
+- **Canonical procedural recipe** → HOWTO document, tag it.
+
+**Prompt when ambiguous**: "This looks like a reusable lesson: [summary].
+Save to DaedalAI?"
+
+Severity, scope, dedup, smoke-test — delegated to the capture skill /
+scribe agent. Surfacing is automatic: `da_context_for_task` pulls
+linked docs; pre-plan discovery pulls by tag.
+
+## 10. Retroactive Mode
+
+When orchestration starts and code changes already exist (work done before
+the skill was invoked):
+1. Still execute ALL steps — create WI, entity linking, confirm-then-go
+2. Present the confirm-then-go summary even if already implemented
+3. Compress phases (create → IN_PROGRESS → commit → TESTING) but do NOT
+   skip entity linking, mandatory fields, or status progression
+4. Run the quality gate pipeline as normal — retroactive is not a shortcut
+
+Detection: if `git status` or `git stash list` shows changes matching the
+user's described work BEFORE da_create_work_item is called → retroactive mode.
+
+## 11. Fallback (MCP unreachable)
+
+If DaedalAI tools return connection errors:
+1. Warn: "DaedalAI MCP unreachable. Work items/docs/knowledge unavailable."
+2. Continue code-only (no WI, no docs, no QG reporting)
+3. After: "DaedalAI was offline — create WI and import results when back."
+
+For refocusing an oversized umbrella WI, see the global HOWTO
+"Refocusing an oversized umbrella work item" (tags `umbrella,refocus`)
+surfaced pre-plan by the Lessons & HOWTOs pass.

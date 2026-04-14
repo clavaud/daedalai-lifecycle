@@ -1,0 +1,20 @@
+{
+  "name": "daedalai-lifecycle",
+  "description": "Project lifecycle orchestration through DaedalAI — universal manual for code and non-code projects, with specialist agents, workflow skills, slash commands, enforced lesson rules, and tag-matched HOWTOs",
+  "version": "2.0.0",
+  "author": {
+    "name": "Alexandre Clavaud"
+  },
+  "homepage": "https://github.com/aclavaud/daedalai",
+  "license": "PROPRIETARY",
+  "keywords": [
+    "daedalai",
+    "lifecycle",
+    "orchestration",
+    "quality-gate",
+    "knowledge-capture",
+    "agent",
+    "howto",
+    "lesson-rules"
+  ]
+}

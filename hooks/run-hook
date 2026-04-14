@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+# Shared hook emitter — sources the hook file for CONTEXT, then emits JSON
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/$1"
+
+escape_for_json() {
+  local s="$1"
+  s="${s//\\/\\\\}"
+  s="${s//\"/\\\"}"
+  s="${s//$'\n'/\\n}"
+  s="${s//$'\r'/\\r}"
+  s="${s//$'\t'/\\t}"
+  printf '%s' "$s"
+}
+
+# Map hook filename to event name
+case "$1" in
+  session-start) EVENT_NAME="SessionStart" ;;
+  prompt-submit) EVENT_NAME="UserPromptSubmit" ;;
+  *) EVENT_NAME="$1" ;;
+esac
+
+ESCAPED=$(escape_for_json "$CONTEXT")
+
+if [[ -n "${CLAUDE_PLUGIN_ROOT:-}" && -z "${COPILOT_CLI:-}" ]]; then
+  printf '{\n  "hookSpecificOutput": {\n    "hookEventName": "%s",\n    "additionalContext": "%s"\n  }\n}' "$EVENT_NAME" "$ESCAPED"
+elif [[ -n "${CURSOR_PLUGIN_ROOT:-}" ]]; then
+  printf '{\n  "additional_context": "%s"\n}' "$ESCAPED"
+else
+  printf '{\n  "additionalContext": "%s"\n}' "$ESCAPED"
+fi

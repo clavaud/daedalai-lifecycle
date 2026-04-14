@@ -1,0 +1,28 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|clear|compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/run-hook\" session-start",
+            "async": false
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "matcher": "(?i)\\b(bug|broken|crash|doesn't work|regression|fix|implement|feature|refactor|enhance|test|coverage|review|quality|simplify|plan|design|architect|spec|brainstorm|deploy|migrate|update|change|modify|delete|remove|rename|debug|investigate|optimize|rewrite|configure|setup|port)\\b",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/run-hook\" prompt-submit",
+            "async": false
+          }
+        ]
+      }
+    ]
+  }
+}

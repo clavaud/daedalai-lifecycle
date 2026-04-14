@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# DaedalAI Lifecycle Plugin — Session Start Hook
+# Sets CONTEXT for the shared emitter (run-hook).
+
+CONTEXT="You are working on a DaedalAI-managed project. ALL development actions (bugs, features, fixes, plans, specs, tests, reviews) MUST flow through DaedalAI MCP tools. When you detect a development intent, invoke the daedalai-lifecycle:orchestrate skill BEFORE responding. Non-development conversations (questions about Claude Code itself, general chat) are unaffected."
