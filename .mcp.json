@@ -2,7 +2,10 @@
   "mcpServers": {
     "daedalai-prod": {
       "type": "http",
-      "url": "https://mcp.daedalai.dev/mcp"
+      "url": "https://mcp.daedalai.dev/mcp",
+      "oauth": {
+        "clientId": "daedalai-lifecycle-plugin"
+      }
     }
   }
 }
