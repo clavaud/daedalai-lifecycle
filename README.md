@@ -32,6 +32,7 @@ on DaedalAI for the rationale.
 | `daedalai-create-spec` | Draft and attach a 4-section SPEC |
 | `daedalai-finalize-work-item` | Register commits, lesson-check, QG, TESTING |
 | `daedalai-capture-lesson` | Classify as Rule or Advisory, author, dedup |
+| `daedalai-capture-snippet` | Capture CODE_SNIPPET with language + framework/pattern tags |
 | `daedalai-bug-from-error` | Stack trace → BUG WI with dedup |
 | `daedalai-sprint-status` | Read-only markdown summary of a sprint |
 
@@ -43,6 +44,7 @@ on DaedalAI for the rationale.
 | `/daedalai-spec <key> [summary]` | `daedalai-create-spec` |
 | `/daedalai-finalize <key>` | `daedalai-finalize-work-item` |
 | `/daedalai-lesson <description>` | `daedalai-capture-lesson` |
+| `/daedalai-snippet [hints]` | `daedalai-capture-snippet` |
 | `/daedalai-bug <error>` | `daedalai-bug-from-error` |
 | `/daedalai-sprint-status [label]` | `daedalai-sprint-status` |
 

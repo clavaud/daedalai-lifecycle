@@ -310,10 +310,11 @@ Before writing a plan or dispatching implementation agents:
 2. `da_list_documents(projectCode, type=LESSON)` → fetch project lessons (full markdown — advice that may not have a regex trigger)
 3. `da_list_documents(type=LESSON)` → fetch global (cross-project) lessons
 4. `da_list_documents(projectCode, type=HOWTO)` → fetch canonical recipes; filter by tag overlap with affected modules/screens/functions (e.g. tags `admin,searchlayout,vaadin` match a new admin list screen WI)
-5. Filter for items relevant to the affected modules or task type
-6. Include relevant lessons AND matching HOWTOs in the plan document
-7. Include relevant lessons AND matching HOWTOs in every agent dispatch prompt
-8. **Note**: QUALITY_GATE checkpoints automatically run `da_check_lessons` server-side and append match results to the checkpoint response — no explicit call needed at QG time
+5. `da_list_documents(projectCode, type=CODE_SNIPPET)` → fetch tagged snippets; filter by the same tag-overlap rule. CODE_SNIPPET tags follow the convention `language:X`, `framework:Y-Z`, `pattern:W`, `source:V` (see `daedalai-capture-snippet` skill). A WI touching a Java+Spring-Boot+search-layout screen matches snippets tagged `language:java framework:spring-boot-4 pattern:search-layout`.
+6. Filter for items relevant to the affected modules or task type
+7. Include relevant lessons, matching HOWTOs, AND matching CODE_SNIPPETs in the plan document
+8. Include them all in every agent dispatch prompt — snippets give agents concrete starting points they can copy-adapt instead of re-deriving
+9. **Note**: QUALITY_GATE checkpoints automatically run `da_check_lessons` server-side and append match results to the checkpoint response — no explicit call needed at QG time
 
 **MCP tool guidance in agent prompts (MANDATORY for code projects):**
 Every agent dispatch prompt MUST include tool selection guidance:
