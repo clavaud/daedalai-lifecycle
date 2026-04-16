@@ -118,6 +118,66 @@ that `force: true` can't fix. Step through states sequentially (`TODO →
 IN_PROGRESS → TESTING → DONE`), each with `force: true`. You can batch the
 transitions in a single parallel tool-call message.
 
+## 3a. Delegating to Server-Side Prompts and Resources (DAEDA-201)
+
+DaedalAI's MCP server exposes canonical golden-path sequences as **Prompts**
+and reference content as **Resources**. This skill DELEGATES to them when
+reachable and falls back to the inline content in later sections when it
+isn't. The principle (DECISION D9b): one source of truth, server-side;
+the skill is the behavioural wrapper.
+
+### Golden-path prompts (server-side)
+
+When intent matches one of these, prefer `prompts/get(name, args)` over
+the inline §7 sequence. Same authoritative content, maintained once.
+
+| Intent | Prompt name | Args |
+|--------|-------------|------|
+| Create a WI from a user ask | `create-work-item` | `intent`, `projectCode?` |
+| Upload a file to an entity | `upload-file` | `entityType`, `entityPublicId` |
+| Comment on a WI | `comment` | `workItemKey` |
+| Move WI to a sprint | `move-to-sprint` | `workItemKey`, `sprintLabel?` |
+| Investigate around a screen/function | `investigate-related-work` | `entityType`, `entityCode` |
+| Load full WI context | `investigate-task-context` | `workItemKey` |
+| Draft a SPEC | `create-spec` | `workItemKey` |
+| Draft a PLAN | `create-plan` | `workItemKey` |
+
+### Reference resources (server-side)
+
+| Purpose | URI |
+|---------|-----|
+| Identifier format glossary (PUBLIC_ID vs ITEM_KEY etc.) | `daedalai://glossary/identifiers` |
+| Full MCP tool catalog with metadata | `daedalai://catalog/tools` |
+| Chat-safe recommended tool subset | `daedalai://catalog/recommended` |
+| Per-tool decision metadata | `daedalai://tools/{name}/meta` |
+| Project digest | `daedalai://projects/{projectCode}` |
+| All accessible projects | `daedalai://projects` |
+
+### Capability detection (once per session, DECISION D9a)
+
+1. Call `prompts/list` once at session start. Cache the result.
+2. If the list includes the golden-path prompts → delegation is available.
+3. Empty / errors / unsupported → fall back to the tool-call layer.
+4. Tool-call layer also unreachable → fall back to inline §7 content.
+
+### Fallback chain for sequence execution
+
+| Tier | Mechanism | Use when |
+|------|-----------|----------|
+| 1 — **Prompts** | `prompts/get(name, args)` | Primary. Client supports MCP Prompts. |
+| 2 — **Tool fallback** | `da_workflow_guide(intent, arg1, arg2)` | Client doesn't support Prompts, or `prompts/list` came back empty (DAEDA-210). |
+| 3 — **Inline §7** | Follow the §7 table directly | Tool-call fallback also unreachable (full MCP down). |
+
+### Delegation invariant
+
+- **Never inline a sequence the server authors.** When adding a new phase
+  that has a server-side prompt counterpart, link to the prompt rather
+  than copying its body here.
+- **Never let the skill and the prompt drift.** Cache only the probe
+  result, never the sequence content — re-fetch each time.
+- **§7 stays** as the offline fallback. Future tightening: shrink §7 to
+  essentials once delegation is proven reliable across client types.
+
 ## 4. Entity Linking (MANDATORY)
 
 Every work item MUST link to:
@@ -186,6 +246,14 @@ TRIVIAL: announce briefly but still ask "Fix now?" — do not auto-implement.
 The user may want to just track, defer, delegate, or fix selectively.
 
 ## 7. Phase Actions
+
+> **Prefer §3a delegation when available.** The table below is the offline
+> fallback — when MCP Prompts are reachable, `prompts/get("create-work-item"
+> | "create-spec" | "create-plan" | "upload-file" | "comment" | "move-to-sprint"
+> | "investigate-related-work" | "investigate-task-context", args)` is the
+> authoritative sequence for each corresponding phase. This local copy
+> exists for MCP-unreachable scenarios and for phases without a matching
+> prompt (Pre-flight, Test+QG, Completion).
 
 | Phase | DaedalAI Calls | Status | Checkboxes |
 |-------|---------------|--------|------------|
@@ -432,6 +500,12 @@ Blocked handling (universal — applies to code and non-code projects):
 
 ## Document Type Reference
 
+> **Prefer the server resource when available.** The canonical list lives
+> at `resources/read("daedalai://catalog/document-types")` once that
+> resource ships (Phase E2 gap — filed as follow-up). Until then, or for
+> MCP-unreachable scenarios, the table below is the authoritative cached
+> copy. If the two drift, the server wins.
+
 When creating documents with `da_create_document(type, ...)`, use the right type:
 
 | Type | When to create | Attached to |
@@ -548,10 +622,15 @@ user's described work BEFORE da_create_work_item is called → retroactive mode.
 
 ## 11. Fallback (MCP unreachable)
 
-If DaedalAI tools return connection errors:
-1. Warn: "DaedalAI MCP unreachable. Work items/docs/knowledge unavailable."
-2. Continue code-only (no WI, no docs, no QG reporting)
-3. After: "DaedalAI was offline — create WI and import results when back."
+Three-tier degradation per §3a:
+
+1. **Prompts unreachable** → fall back to `da_workflow_guide(intent, …)`
+   tool-call (DAEDA-210). Same content, different surface.
+2. **Tool-call layer unreachable** → fall back to inline §7 Phase Actions
+   content in this skill. Offline-safe, may be stale vs server.
+3. **Full MCP down** → warn, continue code-only (no WI, no docs, no QG
+   reporting). After: "DaedalAI was offline — create WI and import
+   results when back."
 
 For refocusing an oversized umbrella WI, see the global HOWTO
 "Refocusing an oversized umbrella work item" (tags `umbrella,refocus`)
