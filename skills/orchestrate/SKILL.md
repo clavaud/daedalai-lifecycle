@@ -152,6 +152,9 @@ the inline §7 sequence. Same authoritative content, maintained once.
 | Per-tool decision metadata | `daedalai://tools/{name}/meta` |
 | Project digest | `daedalai://projects/{projectCode}` |
 | All accessible projects | `daedalai://projects` |
+| Document type catalog (DAEDA-222) | `daedalai://catalog/document-types` |
+| Per-type markdown template (DAEDA-222) | `daedalai://templates/{type}` |
+| Tag vocabulary across documents + WIs (DAEDA-222) | `daedalai://catalog/tags` |
 
 ### Capability detection (once per session, DECISION D9a)
 
@@ -501,34 +504,25 @@ Blocked handling (universal — applies to code and non-code projects):
 
 ## Document Type Reference
 
-> **Prefer the server resource when available.** The canonical list lives
-> at `resources/read("daedalai://catalog/document-types")` once that
-> resource ships (Phase E2 gap — filed as follow-up). Until then, or for
-> MCP-unreachable scenarios, the table below is the authoritative cached
-> copy. If the two drift, the server wins.
+Canonical list + per-type templates live server-side as MCP Resources
+(DAEDA-222):
 
-When creating documents with `da_create_document(type, ...)`, use the right type:
+- `resources/read("daedalai://catalog/document-types")` — all types
+  with displayName, description, icon, color. Pulls live from
+  `ref_catalog`, so new types (e.g. CODE_SNIPPET, MAIL) appear
+  automatically with no skill redeploy.
+- `resources/read("daedalai://templates/{type}")` — markdown skeleton
+  for SPEC, PLAN, DECISION, TEST, CHECKLIST, LESSON, HOWTO,
+  RELEASE_NOTE. Invalid type returns JSON error with the valid list.
 
-| Type | When to create | Attached to |
-|------|----------------|-------------|
-| `SPEC` | Requirements, payload contracts, API specs | WI (hasSpec ✓) |
-| `PLAN` | Implementation plans, execution phases | WI (hasPlan ✓) |
-| `DECISION` | Architectural choices, trade-off analysis | WI, module, function |
-| `NOTE` | Meeting notes, ad-hoc observations | WI, project |
-| `LESSON` | Reusable learnings — use `da_create_lesson` for enforceable rules, `da_create_document(type=LESSON)` for advice-only | WI, module, function |
-| `HOWTO` | Canonical procedural recipes, tag-matched. Surfaced pre-plan via `da_list_documents(type=HOWTO, tags=…)` overlap with task tags. Template: Problem → Prerequisites → Steps → Common Mistakes → Related Lessons. | WI, module, function, project |
-| `TEST` | **Manual test procedures**: steps, expected results, evidence checklist. Create when a WI reaches TESTING and needs human verification beyond automated tests. | WI |
-| `CHECKLIST` | **Deployment/release checklists**: pre-deploy verification, post-deploy smoke tests, rollback criteria. Create when a WI has special deployment requirements. | WI, version |
-| `RELEASE_NOTE` | Per-release highlights and changelog | version |
-| `TECHNICAL_DOCUMENTATION` | Internal architecture, APIs, developer reference | module, project |
-| `USER_MANUAL` | End-user facing documentation | module, project |
-| `GENERAL` | Anything that doesn't fit the above | any entity |
-
-**Templates:**
-- **LESSON**: Problem → Root Cause → Fix → Prevention → Context
-- **DECISION**: Decision → Alternatives → Rationale → Consequences → Context
-- **TEST**: Preconditions → Steps → Expected Results → Evidence Required
-- **CHECKLIST**: Pre-Deploy → Deploy Steps → Post-Deploy Verification → Rollback Plan
+Common picks at a glance — SPEC/PLAN attach to WIs, DECISION attaches
+to WI/module/function for architectural history, LESSON via
+`da_create_lesson` when regex-enforceable else
+`da_create_document(type=LESSON)`, HOWTO with tags for tag-matched
+surfacing, TEST for manual verification procedures, CHECKLIST for
+deployment checklists attached to a version, CODE_SNIPPET via the
+`daedalai-capture-snippet` skill with `language:X` tags. Consult the
+resource for the full list + descriptions.
 
 ## 8. Quality Gate (mandatory after every implementation)
 

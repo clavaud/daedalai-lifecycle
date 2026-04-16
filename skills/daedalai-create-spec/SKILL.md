@@ -32,16 +32,24 @@ WI's description and recent comments.
    - `da_list_documents(projectCode, type=LESSON)` — relevant lessons
    - `da_list_documents(projectCode, type=HOWTO)` — tag-matched
      recipes
-4. **Draft the SPEC** with these four sections. Keep the total under
-   ~1200 words — if it grows past that, scope is probably too wide
-   and the WI should be split.
+4. **Draft the SPEC**: fetch the canonical skeleton via
+   `resources/read("daedalai://templates/SPEC")` (DAEDA-222) — Problem
+   / Approach / Verification / Risks. Keep the total under ~1200
+   words; if it grows past that, scope is probably too wide and the
+   WI should be split.
 
-   **Problem** — what's missing/broken, user impact, scope boundary.
-   **Approach** — high-level direction, key decisions, modules
-   affected. Not implementation detail — that's the PLAN's job.
-   **Verification** — testable acceptance criteria. How will we know
-   the spec is satisfied? What can we measure?
-   **Risks** — what could go wrong, dependencies, explicit out-of-scope.
+   Section intent (resource has the skeleton, this is the authoring
+   lens):
+   - **Problem** — what's missing/broken, user impact, scope boundary.
+   - **Approach** — high-level direction, key decisions, modules
+     affected. Not implementation detail — that's the PLAN's job.
+   - **Verification** — testable acceptance criteria. How will we know
+     the spec is satisfied? What can we measure?
+   - **Risks** — what could go wrong, dependencies, explicit
+     out-of-scope.
+
+   If the resource is unreachable, fall back to the four sections as
+   authored directly from the lens above.
 
 5. **Create**:
    ```

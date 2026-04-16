@@ -53,23 +53,15 @@ Optional arg flags:
    - `global` when cross-project (e.g. SQL syntax traps,
      JVM-universal gotchas).
 
-5. **Author the body** (template for both rule and advisory):
-   ```
-   ## Problem
-   <what was wrong, one paragraph>
-
-   ## Root Cause
-   <why it happens, not just what>
-
-   ## Fix
-   <what to do instead, with code examples>
-
-   ## Prevention
-   <how to avoid recurrence>
-
-   ## Context
-   <which WIs surfaced this, by itemKey>
-   ```
+5. **Author the body**:
+   Fetch the canonical LESSON skeleton via
+   `resources/read("daedalai://templates/LESSON")` (DAEDA-222), then
+   fill in each section: Problem / Root Cause / Fix / Prevention /
+   Context. The resource is the source of truth — it's what
+   `daedalai-create-spec` et al. use too, so structure stays
+   consistent. If the resource is unreachable, fall back to the
+   last-known skeleton: Problem → Root Cause → Fix → Prevention →
+   Context, one section each, markdown `##` headers.
 
 6. **Create**:
    - **Rule**:
