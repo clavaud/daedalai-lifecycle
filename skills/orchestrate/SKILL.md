@@ -28,8 +28,8 @@ owns it. Each layer has a different lifecycle, audience, and surface.
 | **Other skills** | `skills/<name>/SKILL.md` | Claude Code (on skill invoke) | On-demand via `Skill` tool | Per workflow addition |
 | **Slash commands** | `commands/<name>.md` | User (typing `/<name>`) | On command invoke | Per UX addition |
 | **Agents** | `agents/<name>.md` | Claude Code (on dispatch) | On Agent dispatch | Per specialist addition |
-| **Enforced Lesson Rules** | DaedalAI `LessonRuleEntity` (via `da_create_lesson`) | QG checkpoints (server-side) | Automatically at `da_checkpoint(QUALITY_GATE)` | Per detected anti-pattern |
-| **LESSON documents** | DaedalAI (`da_create_document(type=LESSON)`) | Plan + agent-dispatch surfacing | Pre-plan via `da_list_documents(type=LESSON)` | Per reusable learning |
+| **Enforced Lesson Rules** | DaedalAI `LessonRuleEntity` (via `da_create_lesson`) | Every plan + every QG checkpoint | Per-WI via `da_list_lesson_rules(projectCode, enabled=true)` at §7 plan-time (MANDATORY) + automatically server-side at `da_checkpoint(QUALITY_GATE)` | Per detected anti-pattern |
+| **LESSON documents** (advisory — not rule-backed) | DaedalAI (`da_create_document(type=LESSON)`) | On-demand per-need | Call `da_list_documents(type=LESSON, tags=…)` or `da_search(documentType=LESSON)` explicitly — NOT a mandatory per-WI pre-plan step. The fat unfiltered pull used to truncate; load it scoped or not at all. | Per reusable learning |
 | **HOWTO documents** | DaedalAI (`da_create_document(type=HOWTO)`) | Pre-plan surfacing, tag-matched | Pre-plan via `da_list_documents(type=HOWTO, tags=…)` | Per canonical recipe |
 | **DECISION documents** | DaedalAI (`da_create_document(type=DECISION)`) | Architectural history | On-demand via `da_list_documents(type=DECISION)` | Per architectural choice |
 | **Pre-edit hook** | `hooks/*.json` + hook script | Claude Code (before edit) | Before every Edit/Write/MultiEdit tool call | Rarely (policy changes) |
@@ -235,7 +235,10 @@ For NORMAL/COMPLEX, present before executing:
 🌿 Branch: [branch to create/checkout]
 📎 Related: [linked WIs with relationship type]
 📊 Complexity: [level]
-⚠️ Lessons in this area: [linked LESSON documents]
+🪧 Lesson rules in play:
+  - [severity] {rule-id-prefix} — {reason}
+  - …
+  (or "none" if da_list_lesson_rules returned empty)
 
 Proposed workflow: [numbered steps]
 (Bugs: evidence, analyse, rootCause, solution populated during workflow)
@@ -262,7 +265,7 @@ The user may want to just track, defer, delegate, or fix selectively.
 |-------|---------------|--------|------------|
 | Create | da_create_work_item + links + version + da_assign_to_sprint + branch | TODO | — |
 | Spec | da_create_document(SPEC) → da_attach to WI | SPECS | hasSpec ✓ |
-| Lessons & HOWTOs | da_list_lesson_rules(projectCode) + da_list_documents(projectCode, type=LESSON) + da_list_documents(projectCode, type=HOWTO) → surface enforced rules, markdown lessons, and tag-matched recipes | pre-Plan | — |
+| Lessons & HOWTOs | **MANDATORY**: `da_list_lesson_rules(projectCode, enabled=true)` → enforced rules with full body; **tag-matched (best-effort)**: `da_list_documents(projectCode, type=HOWTO)` + `da_list_documents(projectCode, type=CODE_SNIPPET)`. Advisory `LESSON` docs are surfaced once at SessionStart, not per-WI. | pre-Plan | — |
 | Plan | da_create_document(PLAN) → da_attach to WI | IN_PROGRESS | hasPlan ✓ |
 | Pre-flight | Bash/grep checks derived from surfaced lessons — migration version scan, Envers audit mirror, baseline build, service convention audit. **Gates, not suggestions.** | pre-Implement | — |
 | Analyze (bugs) | da_update_work_item → set analyse + rootCause | IN_PROGRESS | — |
@@ -307,17 +310,62 @@ WI at TODO status is fine — but moving to IN_PROGRESS and starting code
 work requires the user to say "proceed", "yes", "go", or equivalent.
 **WI stays at TODO until the user approves.**
 
-**Lesson & HOWTO surfacing (MANDATORY before plan and implementation):**
-Before writing a plan or dispatching implementation agents:
-1. `da_list_lesson_rules(projectCode)` → fetch **enforced** rules (structured: severity, trigger, scope — smaller payload than markdown, shows what will actually fire at QG)
-2. `da_list_documents(projectCode, type=LESSON)` → fetch project lessons (full markdown — advice that may not have a regex trigger)
-3. `da_list_documents(type=LESSON)` → fetch global (cross-project) lessons
-4. `da_list_documents(projectCode, type=HOWTO)` → fetch canonical recipes; filter by tag overlap with affected modules/screens/functions (e.g. tags `admin,searchlayout,vaadin` match a new admin list screen WI)
-5. `da_list_documents(projectCode, type=CODE_SNIPPET)` → fetch tagged snippets; filter by the same tag-overlap rule. CODE_SNIPPET tags follow the convention `language:X`, `framework:Y-Z`, `pattern:W`, `source:V` (see `daedalai-capture-snippet` skill). A WI touching a Java+Spring-Boot+search-layout screen matches snippets tagged `language:java framework:spring-boot-4 pattern:search-layout`.
-6. Filter for items relevant to the affected modules or task type
-7. Include relevant lessons, matching HOWTOs, AND matching CODE_SNIPPETs in the plan document
-8. Include them all in every agent dispatch prompt — snippets give agents concrete starting points they can copy-adapt instead of re-deriving
-9. **Note**: QUALITY_GATE checkpoints automatically run `da_check_lessons` server-side and append match results to the checkpoint response — no explicit call needed at QG time
+**Lesson rules + HOWTO surfacing (MANDATORY before plan and implementation):**
+
+The load-bearing call is **one call, small payload, always completes**:
+
+1. **`da_list_lesson_rules(projectCode, enabled=true)`** → enforced regex rules
+   for this project **plus global rules**. Response carries `severity`,
+   `triggerPattern`, `reason`, and the full `documentBody` of the backing
+   LESSON document — no second call needed to read the rationale. Typical
+   payload is a few KB; MCP truncation is not a concern.
+
+   **Confirm-Then-Go requirement**: the summary MUST include a
+   `🪧 Lesson rules in play:` block. Format per rule:
+   `- [severity] {id-prefix} — {reason}`. If the filtered list is empty,
+   write `🪧 Lesson rules in play: none`. Boilerplate like
+   `⚠️ Lessons in this area: …` is insufficient — the rule IDs must appear
+   verbatim so the reader can catch a stale/irrelevant match.
+
+   **Rationale**: DAEDA-342 / DAEDA-350 / DAEDA-351 was a triple-repeat of
+   the same i18n-prefix bug while a BLOCKING rule with `triggerCount = 0`
+   sat ignored on the server. The cause: §7 previously also bundled a fat
+   `da_list_documents(type=LESSON)` call that kept hitting the ~100 KB MCP
+   response limit, and when it failed I abandoned the rule-listing call
+   too. Rules are now on their own step so nothing can hide them.
+
+2. **Tag-matched HOWTOs** (best-effort, non-blocking):
+   `da_list_documents(projectCode, type=HOWTO)` → filter by tag overlap
+   with affected modules/screens/functions. Example: `admin,searchlayout,vaadin`
+   for a new admin list screen WI.
+
+3. **Tag-matched CODE_SNIPPETs** (best-effort, non-blocking):
+   `da_list_documents(projectCode, type=CODE_SNIPPET)` → same tag-overlap
+   rule. Snippets follow `language:X`, `framework:Y-Z`, `pattern:W`,
+   `source:V` (see `daedalai-capture-snippet` skill). A WI touching a
+   Java+Spring-Boot+search-layout screen matches snippets tagged
+   `language:java framework:spring-boot-4 pattern:search-layout`.
+
+4. Include the surfaced rules + matching HOWTOs + matching CODE_SNIPPETs
+   in the PLAN document AND in every agent dispatch prompt — snippets
+   give agents concrete starting points they can copy-adapt instead of
+   re-deriving.
+
+**What happened to the advisory `LESSON` documents?**
+Rule-less LESSON documents (narrative guidance that doesn't have a regex
+trigger) are **not** pulled as a mandatory per-WI step anymore — that was
+the fat `da_list_documents(type=LESSON)` call that kept hitting the MCP
+~100 KB response limit and blocking the whole surfacing flow. Read them
+on demand when a WI is genuinely about a process topic:
+`da_list_documents(type=LESSON, tags=…)` with specific tags, or
+`da_search(term=…, documentType=LESSON)` for a fuzzy keyword. The
+SessionStart hook reminds you this path exists but does not pre-fetch
+content — fetching is scoped per-need.
+
+**Note on QG**: `da_checkpoint(QUALITY_GATE)` automatically runs
+`da_check_lessons` server-side against the diff and appends match results
+to the checkpoint response — no explicit call needed at QG time. This is
+the second enforcement gate; the plan-time surface above is the first.
 
 **MCP tool guidance in agent prompts (MANDATORY for code projects):**
 Every agent dispatch prompt MUST include tool selection guidance:
