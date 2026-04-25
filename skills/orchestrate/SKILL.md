@@ -269,7 +269,7 @@ The user may want to just track, defer, delegate, or fix selectively.
 | Plan | da_create_document(PLAN) → da_attach to WI | IN_PROGRESS | hasPlan ✓ |
 | Pre-flight | Bash/grep checks derived from surfaced lessons — migration version scan, Envers audit mirror, baseline build, service convention audit. **Gates, not suggestions.** | pre-Implement | — |
 | Analyze (bugs) | da_update_work_item → set analyse + rootCause | IN_PROGRESS | — |
-| Implement | da_log_progress at milestones, da_add_commit after each commit | IN_PROGRESS | isCommitted ✓ |
+| Implement | da_log_progress at milestones (orchestrator-measured — see §7a), da_add_commit after each commit | IN_PROGRESS | isCommitted ✓ |
 | Fix (bugs) | da_update_work_item → set rootCause + solution, da_add_commit | IN_PROGRESS | isCommitted ✓ |
 | Test+QG | Quality gate pipeline | TESTING | hasTests ✓, simplifyReuse ✓, simplifyQuality ✓, simplifyEfficiency ✓ |
 | Completion | da_update_work_item → set solution (ALL types), verify mandatory fields | pre-DONE | — |
@@ -402,8 +402,24 @@ and non-code projects.
 **Retroactive log** (when timer wasn't running):
 - `da_log_time(workItemPublicId, duration="2h30m", description?)` — accepts `90` (minutes), `1.5h`, `2h30m`, `1d2h`. Source = `MANUAL`.
 
-**Agent-dispatched milestones**:
-- `da_log_progress(publicId, comment, durationMinutes=N, agentTaskId=X)` — preferred for subagent progress pings. Auto-creates an `AGENT`-source time log entry. Dedup by `agentTaskId` (safe to call multiple times for the same agent task).
+**Agent-dispatched milestones** — orchestrator measures, subagent does NOT:
+
+1. Before dispatching an `Agent` tool call, capture `startTs=$(date +%s)` via Bash.
+2. The subagent returns a completion summary only. It MUST NOT call `da_log_progress`
+   and MUST NOT pass or estimate `durationMinutes`. Subagents have no persistent
+   wall-clock awareness across their own tool calls and will fall back to
+   round-number guesses (typical: "20 min" regardless of real elapsed time).
+3. When the subagent returns, compute via Bash:
+   `endTs=$(date +%s)` → `durationMinutes = max(1, ceil((endTs - startTs) / 60))`.
+   The `max(1, …)` guard floors sub-minute returns at 1 instead of 0 (server
+   accepts 0 but it reads as "no time spent" — wrong signal for work that did happen).
+4. The orchestrator then calls `da_log_progress(publicId, comment=<subagent summary>,
+   durationMinutes, agentTaskId=<dispatch id>)` itself. Auto-creates an
+   `AGENT`-source time log entry. Dedup by `agentTaskId` (safe to retry).
+
+**Hard rule**: never invent or estimate `durationMinutes` on AGENT-sourced time logs.
+Measure with the orchestrator's clock, or omit the field entirely. Source = `AGENT`;
+dedup stays via `agentTaskId`.
 
 **Review**:
 - `da_generate_timesheet(from, to, mode=SUMMARY|DETAILED)` — period summary.
@@ -521,7 +537,8 @@ the attached document, not a commit.
   → `da_attach` → `hasSpec=true` → stay in `IN_PROGRESS` while drafting.
 - `Implement`: edit the document iteratively via
   `da_update_document(publicId, changeSummary, content)` — each update
-  creates a new version, preserving history. `da_log_progress` at milestones.
+  creates a new version, preserving history. `da_log_progress` at milestones
+  (orchestrator-measured — see §7a rule).
 - `Test+QG`: see below.
 
 **Quality Gate (non-code definition)**:
@@ -539,7 +556,9 @@ the attached document, not a commit.
 5. `da_add_comment("✅ QG PASSED: [summary]")` on reviewer approval.
 
 **Time logging applies**: use the live timer / retroactive `da_log_time` /
-`da_log_progress` the same way as code projects. Research hours count.
+`da_log_progress` the same way as code projects (the §7a "orchestrator-measures,
+subagent-does-NOT" rule applies here too — research/audit subagents must not
+self-report `durationMinutes`). Research hours count.
 
 **Lessons apply**: audit findings, research methodology gotchas, and
 citation pitfalls are legitimate `LESSON` documents (usually advisory, no
