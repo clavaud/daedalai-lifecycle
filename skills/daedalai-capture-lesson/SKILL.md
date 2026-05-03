@@ -25,9 +25,20 @@ Optional arg flags:
 ## Workflow
 
 1. **Dedup check**:
-   - `da_search(term=<keywords from description>, projectCode=<scope>)`
+   - **Primary** — `da_search_knowledge(query=<problem statement +
+     anti-pattern keywords>, documentTypes="LESSON", projectCode=
+     <scope>, topK=5)`. Hybrid BM25+vector surfaces paraphrased
+     duplicates the keyword path misses (a new "JPA flush gotcha"
+     LESSON matches an existing "PrePersist FlushModeType.COMMIT"
+     LESSON).
+   - **Secondary** (only when the description contains a literal
+     identifier — class name, method name, error string — the
+     embedding model may not have indexed) —
+     `da_search(term=<keywords>, projectCode=<scope>,
+     documentType="LESSON")` as a keyword fallback.
    - `da_list_lesson_rules(projectCode=<scope>)` — scan existing
-     triggers.
+     enforced triggers (separate channel from the LESSON corpus;
+     small + reliable, always pull).
    - If a near-duplicate exists, STOP and tell the user: "Similar
      lesson exists: [title, itemKey]. Update or append there instead
      of creating a new record."

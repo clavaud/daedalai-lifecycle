@@ -51,7 +51,17 @@ of code worth keeping. Job: turn it into a well-tagged DaedalAI
    ```
 
 5. **Dedup check** (best-effort, don't block on match):
-   - `da_search(term=<title keywords>, projectCode=<scope>)` → if a very similar CODE_SNIPPET exists, offer to update that one instead of creating a new record.
+   - **Primary** — `da_search_knowledge(query=<title + one-line
+     description>, documentTypes="CODE_SNIPPET", projectCode=<scope>,
+     topK=5)`. Hybrid BM25+vector ranking surfaces paraphrased
+     duplicates the keyword path misses (e.g. a new "logging
+     boilerplate" snippet matches an existing "HasLogger usage").
+   - **Secondary** (only when the title contains a literal identifier
+     the embedding model may not have indexed yet, e.g. a fresh class
+     name) — `da_search(term=<title keywords>, projectCode=<scope>,
+     documentType="CODE_SNIPPET")` as a fast keyword fallback.
+   - If a similar CODE_SNIPPET exists at high score, offer to update
+     that one (`da_update_document`) instead of creating a new record.
 
 6. **Create the document**:
    ```
