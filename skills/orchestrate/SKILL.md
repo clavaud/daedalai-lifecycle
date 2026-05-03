@@ -30,7 +30,7 @@ owns it. Each layer has a different lifecycle, audience, and surface.
 | **Agents** | `agents/<name>.md` | Claude Code (on dispatch) | On Agent dispatch | Per specialist addition |
 | **Enforced Lesson Rules** | DaedalAI `LessonRuleEntity` (via `da_create_lesson`) | Every plan + every QG checkpoint | Per-WI via `da_list_lesson_rules(projectCode, enabled=true)` at §7 plan-time (MANDATORY) + automatically server-side at `da_checkpoint(QUALITY_GATE)` | Per detected anti-pattern |
 | **LESSON documents** (advisory — not rule-backed) | DaedalAI (`da_create_document(type=LESSON)`) | On-demand per-need | Call `da_list_documents(type=LESSON, tags=…)` or `da_search(documentType=LESSON)` explicitly — NOT a mandatory per-WI pre-plan step. The fat unfiltered pull used to truncate; load it scoped or not at all. | Per reusable learning |
-| **HOWTO documents** | DaedalAI (`da_create_document(type=HOWTO)`) | Pre-plan surfacing, tag-matched | Pre-plan via `da_list_documents(type=HOWTO, tags=…)` | Per canonical recipe |
+| **HOWTO documents** | DaedalAI (`da_create_document(type=HOWTO)`) | Pre-plan surfacing | Pre-plan via `da_search_knowledge(query, topK=5)` (DAEDA-490 primary path) — BM25+vector hybrid; falls back to `da_list_documents(type=HOWTO, tags=…)` for curated/tag-driven discovery | Per canonical recipe |
 | **DECISION documents** | DaedalAI (`da_create_document(type=DECISION)`) | Architectural history | On-demand via `da_list_documents(type=DECISION)` | Per architectural choice |
 | **Pre-edit hook** | `hooks/*.json` + hook script | Claude Code (before edit) | Before every Edit/Write/MultiEdit tool call | Rarely (policy changes) |
 | **CLAUDE.md** | Repo root (e.g. `daedalai-backend/CLAUDE.md`) | Claude Code (auto-loaded per-repo) | Session start in that repo | Per convention change |
@@ -265,7 +265,7 @@ The user may want to just track, defer, delegate, or fix selectively.
 |-------|---------------|--------|------------|
 | Create | da_create_work_item + links + version + da_assign_to_sprint + branch | TODO | — |
 | Spec | da_create_document(SPEC) → da_attach to WI | SPECS | hasSpec ✓ |
-| Lessons & HOWTOs | **MANDATORY**: `da_list_lesson_rules(projectCode, enabled=true)` → enforced rules with full body; **tag-matched (best-effort)**: `da_list_documents(projectCode, type=HOWTO)` + `da_list_documents(projectCode, type=CODE_SNIPPET)`. Advisory `LESSON` docs are surfaced once at SessionStart, not per-WI. | pre-Plan | — |
+| Lessons & HOWTOs | **MANDATORY**: `da_list_lesson_rules(projectCode, enabled=true)` → enforced rules with full body. **PRIMARY (DAEDA-490)**: `da_search_knowledge(query, topK=5)` where query = WI title + affected module/screen/function names → ranked section-level chunks across LESSON/HOWTO/CODE_SNIPPET/DECISION corpora. **Fallback (tag-matched)**: `da_list_documents(projectCode, type=HOWTO)` + `da_list_documents(projectCode, type=CODE_SNIPPET)` for curated tag-driven discovery when search returns empty. Advisory rule-less `LESSON` docs surface once at SessionStart, not per-WI. | pre-Plan | — |
 | Plan | da_create_document(PLAN) → da_attach to WI | IN_PROGRESS | hasPlan ✓ |
 | Pre-flight | Bash/grep checks derived from surfaced lessons — migration version scan, Envers audit mirror, baseline build, service convention audit. **Gates, not suggestions.** | pre-Implement | — |
 | Analyze (bugs) | da_update_work_item → set analyse + rootCause | IN_PROGRESS | — |
@@ -334,22 +334,45 @@ The load-bearing call is **one call, small payload, always completes**:
    response limit, and when it failed I abandoned the rule-listing call
    too. Rules are now on their own step so nothing can hide them.
 
-2. **Tag-matched HOWTOs** (best-effort, non-blocking):
+2. **Semantic knowledge search (DAEDA-490, primary path)**:
+   `da_search_knowledge(query, topK=5)` where `query` is built from the
+   WI's title plus affected module/screen/function names — e.g.
+   `"<WI title> <module names> <screen names> <function names>"`. Returns
+   ranked section-level chunks (BM25 + vector RRF) across LESSON / HOWTO /
+   CODE_SNIPPET / DECISION corpora. Each hit carries `documentType`,
+   `documentTitle`, `sectionTitle`, `sectionPath`, `tags`, `score` (BM25),
+   `vectorDistance` (DAEDA-489), `snippet`, and `documentPublicId` so the
+   agent can `da_get_document(publicId)` for full text on demand.
+
+   **When to skip the call**: when the knowledge index is genuinely
+   irrelevant to the WI (e.g. infra/CI/tooling tasks with no domain
+   touch-point). The call is cheap (1 hybrid search, ~50–200 ms) — when
+   in doubt, run it.
+
+   **When to fall back to step 3 (tag-matched listing)**: when
+   `da_search_knowledge` returns empty for a query you'd expect to match,
+   OR when the index is being rebuilt (the operator can check
+   `knowledge_index_metadata` collection presence to confirm). The
+   tag-matched fallback below stays available indefinitely.
+
+3. **Tag-matched HOWTOs** (fallback / curated discovery, non-blocking):
    `da_list_documents(projectCode, type=HOWTO)` → filter by tag overlap
    with affected modules/screens/functions. Example: `admin,searchlayout,vaadin`
-   for a new admin list screen WI.
+   for a new admin list screen WI. Useful when the search-result polarity
+   is too high (semantic recall picked up tangentially-related content)
+   or for discovering canonical recipes by tag rather than by query.
 
-3. **Tag-matched CODE_SNIPPETs** (best-effort, non-blocking):
+4. **Tag-matched CODE_SNIPPETs** (fallback / curated discovery, non-blocking):
    `da_list_documents(projectCode, type=CODE_SNIPPET)` → same tag-overlap
    rule. Snippets follow `language:X`, `framework:Y-Z`, `pattern:W`,
    `source:V` (see `daedalai-capture-snippet` skill). A WI touching a
    Java+Spring-Boot+search-layout screen matches snippets tagged
    `language:java framework:spring-boot-4 pattern:search-layout`.
 
-4. Include the surfaced rules + matching HOWTOs + matching CODE_SNIPPETs
-   in the PLAN document AND in every agent dispatch prompt — snippets
-   give agents concrete starting points they can copy-adapt instead of
-   re-deriving.
+5. Include the surfaced rules + `da_search_knowledge` top hits + matching
+   HOWTOs + matching CODE_SNIPPETs in the PLAN document AND in every
+   agent dispatch prompt — snippets and section chunks give agents
+   concrete starting points they can copy-adapt instead of re-deriving.
 
 **What happened to the advisory `LESSON` documents?**
 Rule-less LESSON documents (narrative guidance that doesn't have a regex
