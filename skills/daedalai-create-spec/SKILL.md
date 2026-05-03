@@ -29,9 +29,13 @@ WI's description and recent comments.
    - `da_list_comments(publicId)` — recent discussion
    - `da_list_attachments(WORK_ITEM, publicId)` — check for related
      docs
-   - `da_list_documents(projectCode, type=LESSON)` — relevant lessons
-   - `da_list_documents(projectCode, type=HOWTO)` — tag-matched
-     recipes
+   - `da_search_knowledge(query, topK=5)` — primary path for relevant
+     LESSONs / HOWTOs / CODE_SNIPPETs / DECISIONs. Build `query` from
+     the WI title + affected module / screen / function names. One
+     call covers all four corpora with hybrid BM25+vector ranking.
+   - **Fallback** (only if `da_search_knowledge` returns empty):
+     `da_list_documents(projectCode, type=HOWTO, tags=…)` with
+     specific tag filters for curated tag-driven discovery.
 4. **Draft the SPEC**: fetch the canonical skeleton via
    `resources/read("daedalai://templates/SPEC")` (DAEDA-222) — Problem
    / Approach / Verification / Risks. Keep the total under ~1200

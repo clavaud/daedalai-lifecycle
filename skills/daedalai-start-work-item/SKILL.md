@@ -50,10 +50,18 @@ back to `da_what_should_i_work_on` and present the top suggestion.
 8. **Surface pre-work artefacts** (call these in parallel, report
    the results, do NOT embed full content):
    - `da_list_lesson_rules(projectCode)` — enforced rules count
-   - `da_list_documents(projectCode, type=LESSON)` — lesson count by
-     module match
-   - `da_list_documents(projectCode, type=HOWTO)` — HOWTO keys whose
-     tags overlap the WI's module/screen/function names
+     (mandatory; small reliable channel for matrix-driven rules)
+   - `da_search_knowledge(query, topK=5)` — primary path for advisory
+     LESSON / HOWTO / CODE_SNIPPET / DECISION discovery. Build `query`
+     from the WI title + affected module / screen / function names.
+     Returns ranked section-level chunks across all four corpora in
+     one call. Replaces the legacy fat
+     `da_list_documents(type=LESSON|HOWTO)` pulls that used to
+     truncate.
+   - **Fallback** (only if `da_search_knowledge` returns empty for a
+     query you'd expect to match): `da_list_documents(projectCode,
+     type=HOWTO, tags=…)` with specific tag filters for curated
+     tag-driven discovery.
 9. **Return control** to the orchestrator or user. Further steps
    (spec, plan, implementation) happen in their own workflows.
 
