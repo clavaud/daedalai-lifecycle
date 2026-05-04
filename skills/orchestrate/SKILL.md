@@ -30,7 +30,7 @@ owns it. Each layer has a different lifecycle, audience, and surface.
 | **Agents** | `agents/<name>.md` | Claude Code (on dispatch) | On Agent dispatch | Per specialist addition |
 | **Enforced Lesson Rules** | DaedalAI `LessonRuleEntity` (via `da_create_lesson`) | Every plan + every QG checkpoint | Per-WI via `da_list_lesson_rules(projectCode, enabled=true)` at §7 plan-time (MANDATORY) + automatically server-side at `da_checkpoint(QUALITY_GATE)` | Per detected anti-pattern |
 | **LESSON documents** (advisory — not rule-backed) | DaedalAI (`da_create_document(type=LESSON)`) | On-demand per-need | Call `da_list_documents(type=LESSON, tags=…)` or `da_search(documentType=LESSON)` explicitly — NOT a mandatory per-WI pre-plan step. The fat unfiltered pull used to truncate; load it scoped or not at all. | Per reusable learning |
-| **HOWTO documents** | DaedalAI (`da_create_document(type=HOWTO)`) | Pre-plan surfacing | Pre-plan via `da_search_knowledge(query, topK=5)` (DAEDA-490 primary path) — BM25+vector hybrid; falls back to `da_list_documents(type=HOWTO, tags=…)` for curated/tag-driven discovery | Per canonical recipe |
+| **HOWTO documents** | DaedalAI (`da_create_document(type=HOWTO)`) | Pre-plan surfacing | Pre-plan via `da_search_knowledge(query, topK=5, entityTypes=[DOCUMENT])` — BM25+vector hybrid; the corpus also covers WORK_ITEM and COMMENT, so scope to DOCUMENT here to keep the advisory-doc surfacing; falls back to `da_list_documents(type=HOWTO, tags=…)` for curated/tag-driven discovery | Per canonical recipe |
 | **DECISION documents** | DaedalAI (`da_create_document(type=DECISION)`) | Architectural history | On-demand via `da_list_documents(type=DECISION)` | Per architectural choice |
 | **Pre-edit hook** | `hooks/*.json` + hook script | Claude Code (before edit) | Before every Edit/Write/MultiEdit tool call | Rarely (policy changes) |
 | **CLAUDE.md** | Repo root (e.g. `daedalai-backend/CLAUDE.md`) | Claude Code (auto-loaded per-repo) | Session start in that repo | Per convention change |
@@ -60,9 +60,16 @@ If no match → da_ask("Which DaedalAI project is this repo?")
 ## 2. Duplicate & Related Check (before creating)
 
 Before creating any work item:
-1. da_search(keywords) → broad match across entities
-2. da_find_related_work(screenId/functionId) → open items in same area
-3. If matches: "Found existing WIs in this area: [list]. Same, related, or new?"
+1. da_search(keywords) → broad lexical match across entities (Typesense BM25)
+2. da_search_knowledge(query=`<wi-title-and-keywords>`, entityTypes=[WORK_ITEM,COMMENT], topK=10)
+   → semantic match against prior WI narrative + comment threads. Catches
+   "we already discussed this in DAEDA-XYZ comments" cases that BM25 misses
+   when wording differs. Same-WI fold collapses multiple chunk hits into
+   one entry with `relatedChunks` populated.
+3. da_find_related_work(screenId/functionId) → open items in same area (graph adjacency)
+4. If matches: "Found existing WIs in this area: [list — show fold count and
+   parent itemKey for semantic hits, e.g. 'DAEDA-359 — 3 chunks match (title +
+   comment by alex@... 2026-04-21)']. Same, related, or new?"
    - Same → resume existing WI from current status
    - Related → create new + RELATES_TO link
    - New → create fresh
@@ -118,7 +125,7 @@ that `force: true` can't fix. Step through states sequentially (`TODO →
 IN_PROGRESS → TESTING → DONE`), each with `force: true`. You can batch the
 transitions in a single parallel tool-call message.
 
-## 3a. Delegating to Server-Side Prompts and Resources (DAEDA-201)
+## 3a. Delegating to Server-Side Prompts and Resources
 
 DaedalAI's MCP server exposes canonical golden-path sequences as **Prompts**
 and reference content as **Resources**. This skill DELEGATES to them when
@@ -152,9 +159,9 @@ the inline §7 sequence. Same authoritative content, maintained once.
 | Per-tool decision metadata | `daedalai://tools/{name}/meta` |
 | Project digest | `daedalai://projects/{projectCode}` |
 | All accessible projects | `daedalai://projects` |
-| Document type catalog (DAEDA-222) | `daedalai://catalog/document-types` |
-| Per-type markdown template (DAEDA-222) | `daedalai://templates/{type}` |
-| Tag vocabulary across documents + WIs (DAEDA-222) | `daedalai://catalog/tags` |
+| Document type catalog | `daedalai://catalog/document-types` |
+| Per-type markdown template | `daedalai://templates/{type}` |
+| Tag vocabulary across documents + WIs | `daedalai://catalog/tags` |
 
 ### Capability detection (once per session, DECISION D9a)
 
@@ -265,7 +272,7 @@ The user may want to just track, defer, delegate, or fix selectively.
 |-------|---------------|--------|------------|
 | Create | da_create_work_item + links + version + da_assign_to_sprint + branch | TODO | — |
 | Spec | da_create_document(SPEC) → da_attach to WI | SPECS | hasSpec ✓ |
-| Lessons & HOWTOs | **MANDATORY**: `da_list_lesson_rules(projectCode, enabled=true)` → enforced rules with full body. **PRIMARY (DAEDA-490)**: `da_search_knowledge(query, topK=5)` where query = WI title + affected module/screen/function names → ranked section-level chunks across LESSON/HOWTO/CODE_SNIPPET/DECISION corpora. **Fallback (tag-matched)**: `da_list_documents(projectCode, type=HOWTO)` + `da_list_documents(projectCode, type=CODE_SNIPPET)` for curated tag-driven discovery when search returns empty. Advisory rule-less `LESSON` docs surface once at SessionStart, not per-WI. | pre-Plan | — |
+| Lessons & HOWTOs | **MANDATORY**: `da_list_lesson_rules(projectCode, enabled=true)` → enforced rules with full body. **PRIMARY**: `da_search_knowledge(query, topK=5, entityTypes?, documentTypes?)` where query = WI title + affected module/screen/function names → ranked section-level chunks across **all DOCUMENT types + WORK_ITEM + COMMENT** with recency weighting and same-WI fold. Pass `entityTypes=[DOCUMENT]` to keep the advisory-doc-only behaviour of v1; pass `entityTypes=[WORK_ITEM,COMMENT]` for prior-work / dup-detection sweeps; omit for broad context. **Fallback (tag-matched)**: `da_list_documents(projectCode, type=HOWTO)` + `da_list_documents(projectCode, type=CODE_SNIPPET)` for curated tag-driven discovery when search returns empty. Advisory rule-less `LESSON` docs surface once at SessionStart, not per-WI. | pre-Plan | — |
 | Plan | da_create_document(PLAN) → da_attach to WI | IN_PROGRESS | hasPlan ✓ |
 | Pre-flight | Bash/grep checks derived from surfaced lessons — migration version scan, Envers audit mirror, baseline build, service convention audit. **Gates, not suggestions.** | pre-Implement | — |
 | Analyze (bugs) | da_update_work_item → set analyse + rootCause | IN_PROGRESS | — |
@@ -334,15 +341,32 @@ The load-bearing call is **one call, small payload, always completes**:
    response limit, and when it failed I abandoned the rule-listing call
    too. Rules are now on their own step so nothing can hide them.
 
-2. **Semantic knowledge search (DAEDA-490, primary path)**:
-   `da_search_knowledge(query, topK=5)` where `query` is built from the
-   WI's title plus affected module/screen/function names — e.g.
-   `"<WI title> <module names> <screen names> <function names>"`. Returns
-   ranked section-level chunks (BM25 + vector RRF) across LESSON / HOWTO /
-   CODE_SNIPPET / DECISION corpora. Each hit carries `documentType`,
-   `documentTitle`, `sectionTitle`, `sectionPath`, `tags`, `score` (BM25),
-   `vectorDistance` (DAEDA-489), `snippet`, and `documentPublicId` so the
-   agent can `da_get_document(publicId)` for full text on demand.
+2. **Semantic knowledge search**:
+   `da_search_knowledge(query, topK=5, entityTypes?, documentTypes?)` where
+   `query` is built from the WI's title plus affected module/screen/function
+   names — e.g. `"<WI title> <module names> <screen names> <function names>"`.
+   Returns ranked section-level chunks (BM25 + vector RRF, recency-weighted,
+   same-WI folded) across **all DOCUMENT types + WORK_ITEM (5 narrative
+   fields chunked) + COMMENT (with parent-WI context denormalized)**.
+   Each hit carries `entityType`, `documentType`, `documentTitle`,
+   `sectionTitle`, `sectionPath`, `tags`, `score`, `vectorDistance`,
+   `snippet`, `itemKey` (for WI/COMMENT hits),
+   `sourceTitle`/`sourceStatus`/`sourceWorkItemType` (parent context),
+   `relatedChunks` (other folded chunks under the same parent), and
+   `documentPublicId` so the agent can `da_get_document(publicId)` /
+   `da_get_work_item(itemKey)` for full text on demand.
+
+   **Filter strategy**:
+   - For the *advisory-doc surfacing* this step originally served (find
+     LESSON / HOWTO / DECISION / CODE_SNIPPET to inform the plan),
+     pass `entityTypes=[DOCUMENT]`. Optionally narrow further with
+     `documentTypes=[LESSON,HOWTO,CODE_SNIPPET,DECISION]`.
+   - For *prior-work / dup-detection sweeps* (rare in this step but
+     useful when the WI looks similar to an existing one), pass
+     `entityTypes=[WORK_ITEM,COMMENT]`. The §2 duplicate check already
+     does this — don't double-call.
+   - When in doubt, omit the filter and let recency weighting + fold
+     do the ranking work.
 
    **When to skip the call**: when the knowledge index is genuinely
    irrelevant to the WI (e.g. infra/CI/tooling tasks with no domain
@@ -594,8 +618,7 @@ Blocked handling (universal — applies to code and non-code projects):
 
 ## Document Type Reference
 
-Canonical list + per-type templates live server-side as MCP Resources
-(DAEDA-222):
+Canonical list + per-type templates live server-side as MCP Resources:
 
 - `resources/read("daedalai://catalog/document-types")` — all types
   with displayName, description, icon, color. Pulls live from
