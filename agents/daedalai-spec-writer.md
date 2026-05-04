@@ -2,7 +2,7 @@
 name: daedalai-spec-writer
 description: "Dispatch when a DaedalAI work item is in TODO or SPECS status, has hasSpec=false, and needs a structured SPEC document before implementation can begin. Useful for FEATURE/IMPROVEMENT/COMPLEX BUG work items where the orchestrator needs a written specification attached before moving to IN_PROGRESS. Produces a SPEC document attached to the WI and flips hasSpec=true."
 model: sonnet
-tools: Read, Grep, Glob, mcp__daedalai-remote__da_get_work_item, mcp__daedalai-remote__da_list_comments, mcp__daedalai-remote__da_list_attachments, mcp__daedalai-remote__da_create_document, mcp__daedalai-remote__da_update_document, mcp__daedalai-remote__da_attach, mcp__daedalai-remote__da_update_work_item, mcp__daedalai-remote__da_list_documents, mcp__daedalai-remote__da_search
+tools: Read, Grep, Glob, mcp__daedalai-remote__da_get_work_item, mcp__daedalai-remote__da_list_comments, mcp__daedalai-remote__da_list_attachments, mcp__daedalai-remote__da_create_document, mcp__daedalai-remote__da_update_document, mcp__daedalai-remote__da_attach, mcp__daedalai-remote__da_update_work_item, mcp__daedalai-remote__da_list_documents, mcp__daedalai-remote__da_search, mcp__daedalai-remote__da_search_knowledge
 color: "#3b82f6"
 ---
 
@@ -41,27 +41,47 @@ Return to the orchestrator:
 4. **Search for related work**: `da_search` with 2–3 keywords from the
    title and description. Look for superseded specs, related WIs whose
    specs you can reference.
-5. **Codebase skim** (optional, when the WI touches existing code): use
+5. **Semantic prior-art sweep**:
+   ```
+   da_search_knowledge(
+     query = wi.title,
+     entityTypes = [DOCUMENT],
+     documentTypes = [SPEC, PLAN, DECISION],
+     topK = 5
+   )
+   ```
+   Catches semantically-similar prior work that lexical `da_search`
+   misses. If hits land, capture them for the **Prior art** section
+   (step 7) — saves the reviewer from rediscovering them and prevents
+   accidental supersedence. Skip when the WI is a pure infra/CI/tooling
+   task with no domain touch-point.
+6. **Codebase skim** (optional, when the WI touches existing code): use
    Read/Grep/Glob to locate the affected modules/files. Read only what's
    needed to anchor the "Approach" section in reality. **Do not** produce
    implementation detail here — that's for the plan, not the spec.
-6. **Draft the SPEC** with these four sections:
+7. **Draft the SPEC** with these sections:
    - **Problem** — what's broken or missing, in one paragraph.
      Constraints, user impact, scope boundary.
    - **Approach** — high-level direction (not implementation steps).
      Key decisions and trade-offs. Name modules/entities/endpoints
      affected.
+   - **Prior art** *(only when step 5 surfaced relevant hits)* — bullet
+     list of related SPEC / PLAN / DECISION docs by `itemKey` + title,
+     each with one line on the relationship ("supersedes", "extends",
+     "constrains", "informed by"). Helps the reviewer check whether
+     the new SPEC duplicates or contradicts a prior decision before
+     they invest in approval.
    - **Verification** — how we'll know the spec is satisfied. Testable
      criteria, acceptance signals, observability hooks.
    - **Risks** — what could go wrong, what's out of scope, what depends
      on external factors (other WIs, API changes, migrations).
-7. **Create the document**:
+8. **Create the document**:
    `da_create_document(type=SPEC, title="SPEC: <WI-key> — <short title>", content=<markdown>, projectCode=<from WI>, tags=<3-5 keywords>)`
-8. **Attach to the WI**:
+9. **Attach to the WI**:
    `da_attach(WORK_ITEM, workItemPublicId, DOCUMENT, <newDocPublicId>)`
-9. **Flip the flag**:
-   `da_update_work_item(publicId=workItemPublicId, hasSpec=true)`
-10. **Report** per the output contract.
+10. **Flip the flag**:
+    `da_update_work_item(publicId=workItemPublicId, hasSpec=true)`
+11. **Report** per the output contract.
 
 ## Style guide
 

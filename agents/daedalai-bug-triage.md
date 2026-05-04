@@ -2,7 +2,7 @@
 name: daedalai-bug-triage
 description: "Dispatch when a user reports an error, exception, stack trace, or unexpected behavior in a DaedalAI-managed project and you need to create a BUG work item with duplicate detection. Handles error-fingerprint-based deduplication against open and recently-closed BUGs. Returns Created / Duplicate / Already-Resolved verdict. Never edits code — triage only."
 model: sonnet
-tools: Read, Grep, mcp__daedalai-remote__da_create_issue_from_error, mcp__daedalai-remote__da_list_work_items, mcp__daedalai-remote__da_get_work_item, mcp__daedalai-remote__da_add_comment, mcp__daedalai-remote__da_search, mcp__daedalai-remote__da_list_modules, mcp__daedalai-remote__da_list_functions
+tools: Read, Grep, mcp__daedalai-remote__da_create_issue_from_error, mcp__daedalai-remote__da_list_work_items, mcp__daedalai-remote__da_get_work_item, mcp__daedalai-remote__da_add_comment, mcp__daedalai-remote__da_search, mcp__daedalai-remote__da_search_knowledge, mcp__daedalai-remote__da_list_modules, mcp__daedalai-remote__da_list_functions
 color: "#ef4444"
 ---
 
@@ -46,17 +46,35 @@ Return to the orchestrator:
    context?, modulePublicId?, functionPublicId?)`.
    The response tells you whether a new BUG was created, an open duplicate
    was matched, or a resolved WI was found.
-4. **On Duplicate**: add a comment on the matched WI noting the new
+4. **Semantic fallback when the fingerprint matches nothing**: if the
+   triage tool returned `Created` (no fingerprint dup), do one extra pass:
+   ```
+   da_search_knowledge(
+     query = <exception class> + <top frame> + <one relevant log line>,
+     entityTypes = [WORK_ITEM, COMMENT],
+     topK = 5
+   )
+   ```
+   If a hit's `score` is high (treat ≥ 0.6 after weighting as the soft
+   threshold) AND the parent `sourceWorkItemType` is BUG, mark the new
+   WI as a **Soft-Duplicate** candidate via `da_add_comment` on it:
+   *"Possibly related to DAEDA-XYZ (status=…) — same symptom discussed
+   in a comment by alex@… on 2026-04-21. Different errorSignature, so
+   the fingerprint dedup didn't catch it. Operator: confirm or ignore."*
+   Do not auto-link or auto-close — the orchestrator/user decides.
+5. **On Duplicate**: add a comment on the matched WI noting the new
    occurrence (`da_add_comment` with the new context). Increment
    occurrence in the user's mind — "this is the Nth time this surfaced,
    same fingerprint".
-5. **On Already-Resolved**: add a comment on the resolved WI noting
+6. **On Already-Resolved**: add a comment on the resolved WI noting
    regression ("Resolved in commit X but resurfaced at Y") and flag to
    orchestrator that a REGRESSION BUG may be warranted.
-6. **On Created**: confirm the new WI has priority, type=BUG, and linked
+7. **On Created**: confirm the new WI has priority, type=BUG, and linked
    entities. If any are missing, follow up with `da_update_work_item`
    (but do NOT set status beyond TODO — that's the orchestrator's call).
-7. **Return the verdict** per the output contract.
+8. **Return the verdict** per the output contract. If step 4 surfaced a
+   Soft-Duplicate, include the matched WI's itemKey in the rationale so
+   the orchestrator can pass it to the user alongside the Created verdict.
 
 ## Style guide
 
