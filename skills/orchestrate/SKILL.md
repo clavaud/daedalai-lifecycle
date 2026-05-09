@@ -232,6 +232,22 @@ platform/route/priority → create on approval → link.
 presenting the summary, ALWAYS ask the user whether to proceed.
 Creating the WI is fine — implementing without approval is not.
 
+**Tool-choice self-check (DAEDA-564)**: the summary MUST declare which
+MCP tools you intend to use for the upcoming work, before approval. The
+hook in `hooks/check-prefer-mcp.sh` (DAEDA-563) catches drift at action
+time — this section catches it at plan time, which is cheaper. State
+each non-trivial operation and the tool you'll use: symbol-aware ops
+(rename, find refs, move) → Serena or IntelliJ MCP; cross-file
+structural search → codebase-memory `search_graph` / `trace_path`; bulk
+edits (>5 similar changes) → Morphllm or IntelliJ; library docs lookup
+→ Context7; browser validation → Playwright. If a planned MCP isn't
+installed (the §3a capability detector + the hook's `mcp_installed`
+probe both surface this), pick the next-best tool and note the
+substitution, OR call out the missing MCP in the summary so the user
+can decide whether to install it before proceeding. Single-file Read +
+Edit operations don't need a substitution note — just say "single-file
+Edit — no MCP needed".
+
 For NORMAL/COMPLEX, present before executing:
 
 ```
@@ -246,6 +262,11 @@ For NORMAL/COMPLEX, present before executing:
   - [severity] {rule-id-prefix} — {reason}
   - …
   (or "none" if da_list_lesson_rules returned empty)
+🔧 Planned MCP tools:
+  - {operation 1} → {tool} (e.g. "find AgentConversation callers → Serena find_referencing_symbols")
+  - {operation 2} → {tool} (e.g. "rename Foo.java → Bar.java + update imports → IntelliJ rename_refactoring")
+  - …
+  (or "single-file Edit — no MCP needed" for trivial work)
 
 Proposed workflow: [numbered steps]
 (Bugs: evidence, analyse, rootCause, solution populated during workflow)
@@ -254,6 +275,9 @@ Fix now, or just track?
 ```
 
 TRIVIAL: announce briefly but still ask "Fix now?" — do not auto-implement.
+TRIVIAL still includes the `🔧 Planned MCP tools:` line, even if the only
+entry is `single-file Edit — no MCP needed`. The line is mandatory; the
+content can be one entry.
 
 **Creating WI = triage. Implementing = separate approval.**
 The user may want to just track, defer, delegate, or fix selectively.
