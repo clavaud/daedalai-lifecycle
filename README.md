@@ -1,6 +1,6 @@
 # DaedalAI Lifecycle Plugin
 
-**v2.0.0** — Claude Code plugin that makes DaedalAI the automatic brain
+**v2.5.4** — Claude Code plugin that makes DaedalAI the automatic brain
 behind every action on a DaedalAI-managed project — code and non-code
 alike.
 
@@ -132,9 +132,9 @@ cp -r tools/claude-plugins/daedalai-lifecycle/.claude-plugin ~/.claude/plugins/d
 Or symlink the cache for auto-sync:
 
 ```bash
-rm -rf ~/.claude/plugins/cache/daedalai-lifecycle/daedalai-lifecycle/2.0.0
+rm -rf ~/.claude/plugins/cache/daedalai-lifecycle/daedalai-lifecycle/2.5.4
 ln -sfn "$(pwd)/tools/claude-plugins/daedalai-lifecycle" \
-  ~/.claude/plugins/cache/daedalai-lifecycle/daedalai-lifecycle/2.0.0
+  ~/.claude/plugins/cache/daedalai-lifecycle/daedalai-lifecycle/2.5.4
 ```
 
 ### Verify installation
@@ -150,7 +150,59 @@ In `/plugin` → **Installed**, you should see:
   `daedalai-anatomy-enricher`
 - Commands: `/daedalai-start`, `/daedalai-spec`, `/daedalai-finalize`,
   `/daedalai-lesson`, `/daedalai-bug`, `/daedalai-sprint-status`
-- Hooks: `SessionStart`, `UserPromptSubmit`
+- Hooks: `SessionStart`, `UserPromptSubmit`, `PreToolUse` (Bash)
+
+## MCP-tool advisory hook (DAEDA-563)
+
+A `PreToolUse` hook on `Bash` (`hooks/check-prefer-mcp.sh`) inspects
+each shell command before it runs and prints a non-blocking advisory
+to stderr when a better MCP tool exists for the operation:
+
+| Bash pattern | Recommended MCP |
+|--------------|-----------------|
+| `grep -r…` / `rg` over code | codebase-memory-mcp `search_graph` |
+| `find . -name '*.<code-ext>'` | codebase-memory-mcp `search_graph(name_pattern=…)` |
+| `git grep <symbol>` | Serena `find_referencing_symbols` |
+| `sed -i …` across multiple code files | Morphllm or IntelliJ `replace_text_in_file` |
+| `mv path/Foo.<ext> path/Bar.<ext>` | IntelliJ `rename_refactoring` |
+
+The hook **never blocks** — exit code is always 0, the original Bash
+command runs as requested. False-positive guards skip build chains
+(`./gradlew`, `npm`, `mvn`, …), build/output paths (`build/`,
+`node_modules/`, `target/`, `dist/`, …), `--help`/`--version`, and
+non-code data files (`.log`, `.txt`, `.md`, …). When the recommended
+MCP is not installed (probed via `~/.claude.json` and project-local
+`.mcp.json`), the advisory includes an install hint instead of a
+usage example.
+
+### Settings (per-project opt-out)
+
+The hook reads YAML frontmatter from
+`.claude/daedalai-lifecycle.local.md` in the project root:
+
+```markdown
+---
+mcp_nudge.enabled: true
+mcp_nudge.severity: advisory
+---
+```
+
+| Key | Values | Default | Effect |
+|-----|--------|---------|--------|
+| `mcp_nudge.enabled` | `true` / `false` | `true` | Master switch |
+| `mcp_nudge.severity` | `silent` / `advisory` / `verbose` | `advisory` | `silent` = same as disabled; `verbose` adds the silence-instruction footer to each nudge |
+
+Future settings keys (not yet implemented): `mcp_nudge.skip_patterns`
+for per-project regex exclusions.
+
+### Tests
+
+`hooks/test/test-check-prefer-mcp.sh` runs 16 cases (6 positive, 10
+negative) against the hook script. Run from anywhere:
+
+```bash
+./hooks/test/test-check-prefer-mcp.sh
+```
 
 ## How it works
 
@@ -178,14 +230,17 @@ In `/plugin` → **Installed**, you should see:
 ```
 daedalai-lifecycle/
 ├── .claude-plugin/
-│   ├── plugin.json          # Plugin metadata (version 2.0.0)
+│   ├── plugin.json          # Plugin metadata (version 2.5.4)
 │   └── marketplace.json     # Distribution metadata
 ├── .mcp.json                # Bundled MCP server: daedalai-prod
 ├── hooks/
 │   ├── hooks.json           # Hook event registrations
 │   ├── run-hook             # Platform-agnostic hook runner
 │   ├── session-start        # SessionStart: behavioral prime
-│   └── prompt-submit        # UserPromptSubmit: intent reinforcement
+│   ├── prompt-submit        # UserPromptSubmit: intent reinforcement
+│   ├── check-prefer-mcp.sh  # PreToolUse: advisory MCP-tool nudge (DAEDA-563)
+│   └── test/
+│       └── test-check-prefer-mcp.sh  # Hook test runner
 ├── skills/
 │   ├── orchestrate/
 │   │   └── SKILL.md         # Universal lifecycle manual (§0–§11)
@@ -235,6 +290,28 @@ daedalai-lifecycle/
   QG, no composite-build or worktree assumptions.
 
 ## Changelog
+
+### 2.5.4 (2026-05-09) — DAEDA-563 + DAEDA-564 MCP-tool discipline
+
+- **PreToolUse advisory hook** (`hooks/check-prefer-mcp.sh`) on `Bash`:
+  detects 5 anti-patterns (recursive `grep`/`rg` on code, `find` by
+  code-extension, `git grep` on symbols, `sed -i` across multiple code
+  files, `mv` of source files) and prints a non-blocking advisory
+  pointing at the better MCP tool (codebase-memory `search_graph`,
+  Serena `find_referencing_symbols`, Morphllm or IntelliJ
+  `replace_text_in_file`, IntelliJ `rename_refactoring`). Hook always
+  exits 0; the original Bash command runs as requested. When the
+  recommended MCP isn't installed (probed via `~/.claude.json` +
+  project-local `.mcp.json`), the advisory includes an install hint.
+  Configurable via `.claude/daedalai-lifecycle.local.md` frontmatter
+  (`mcp_nudge.enabled`, `mcp_nudge.severity`). 16 tests under
+  `hooks/test/`.
+- **Confirm-Then-Go: `🔧 Planned MCP tools:` section** added to the
+  orchestrate skill §6 template. Forces declaration at plan time of
+  which MCP tools the upcoming work will use, so the user can catch a
+  wrong-tool plan before approval. Companion to the PreToolUse hook
+  (action-time vs plan-time enforcement). TRIVIAL still includes the
+  line, even if the only entry is `single-file Edit — no MCP needed`.
 
 ### 2.0.0 (2026-04-14) — DAEDA-182 universality refactor + agents + skills library
 
