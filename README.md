@@ -1,6 +1,6 @@
 # DaedalAI Lifecycle Plugin
 
-**v2.0.0** — Claude Code plugin that makes DaedalAI the automatic brain
+**v2.5.4** — Claude Code plugin that makes DaedalAI the automatic brain
 behind every action on a DaedalAI-managed project — code and non-code
 alike.
 
@@ -132,9 +132,9 @@ cp -r tools/claude-plugins/daedalai-lifecycle/.claude-plugin ~/.claude/plugins/d
 Or symlink the cache for auto-sync:
 
 ```bash
-rm -rf ~/.claude/plugins/cache/daedalai-lifecycle/daedalai-lifecycle/2.0.0
+rm -rf ~/.claude/plugins/cache/daedalai-lifecycle/daedalai-lifecycle/2.5.4
 ln -sfn "$(pwd)/tools/claude-plugins/daedalai-lifecycle" \
-  ~/.claude/plugins/cache/daedalai-lifecycle/daedalai-lifecycle/2.0.0
+  ~/.claude/plugins/cache/daedalai-lifecycle/daedalai-lifecycle/2.5.4
 ```
 
 ### Verify installation
@@ -230,7 +230,7 @@ negative) against the hook script. Run from anywhere:
 ```
 daedalai-lifecycle/
 ├── .claude-plugin/
-│   ├── plugin.json          # Plugin metadata (version 2.0.0)
+│   ├── plugin.json          # Plugin metadata (version 2.5.4)
 │   └── marketplace.json     # Distribution metadata
 ├── .mcp.json                # Bundled MCP server: daedalai-prod
 ├── hooks/

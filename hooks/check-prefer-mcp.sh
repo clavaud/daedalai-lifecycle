@@ -22,14 +22,51 @@
 #   mv path/Foo.<ext> path/Bar.<ext> (rename) -> IntelliJ rename_refactoring
 #
 # False-positive guards (skip without nudging):
-#   - command runs in build/ node_modules/ target/ .git/ dist/ out/ .gradle/
+#   - command runs in build/ node_modules/ target/ .git/ dist/ out/ .gradle/ (path-component aware)
 #   - command is part of a build chain: ./gradlew, npm, yarn, pnpm, mvn, make, cargo, go build
 #   - --help / --version / -h / -V invocations
-#   - target paths are .log / .txt / .md / .json (non-code data)
+#   - target paths are .log / .txt / .md / .json (non-code data) — ONLY when no code-ext token also present
 
 set -u
 
-# Settings: read from .claude/daedalai-lifecycle.local.md (YAML frontmatter).
+# --- Read stdin first (need CMD before guards can run) ------------------
+INPUT=$(cat || true)
+if [[ -z "${INPUT}" ]]; then exit 0; fi
+
+CMD=""
+if command -v jq >/dev/null 2>&1; then
+  CMD=$(jq -r '.tool_input.command // empty' <<<"${INPUT}" 2>/dev/null || true)
+elif command -v python3 >/dev/null 2>&1; then
+  CMD=$(python3 -c 'import json,sys;
+try:
+    d=json.load(sys.stdin)
+    print((d.get("tool_input") or {}).get("command",""))
+except Exception:
+    pass' <<<"${INPUT}" 2>/dev/null || true)
+fi
+
+if [[ -z "${CMD}" ]]; then exit 0; fi
+
+# --- Cheap guards FIRST (short-circuit before settings file read) -------
+
+# Skip help/version
+case "${CMD}" in
+  *"--help"*|*"--version"*|*" -h "*|*" -V "*) exit 0 ;;
+esac
+
+# Skip build chain commands at the start of the command line
+case "${CMD}" in
+  ./gradlew*|gradle\ *|mvn\ *|npm\ *|yarn\ *|pnpm\ *|make\ *|cargo\ *|"go build"*|"go test"*|"go run"*|node\ *|python\ *|python3\ *|pytest*|./mvnw*) exit 0 ;;
+esac
+
+# Skip if path-component is a known build/output dir.
+# Anchored: must follow start-of-string, whitespace, or '/' so 'build-tools/' won't trip 'build/'.
+RE_BUILD_PATH='(^|[[:space:]/])(build|node_modules|target|\.git|dist|out|\.gradle)/'
+if [[ "${CMD}" =~ $RE_BUILD_PATH ]]; then
+  exit 0
+fi
+
+# --- Settings: read from .claude/daedalai-lifecycle.local.md (YAML frontmatter)
 # Defaults if absent: enabled=true, severity=advisory.
 SETTINGS_FILE=".claude/daedalai-lifecycle.local.md"
 NUDGE_ENABLED="true"
@@ -38,6 +75,7 @@ if [[ -f "${SETTINGS_FILE}" ]]; then
   # Best-effort YAML frontmatter scrape — no full YAML parser dependency.
   in_fm=0
   while IFS= read -r line; do
+    line="${line%$'\r'}"  # strip CRLF if present
     if [[ "${line}" == "---" ]]; then
       if [[ ${in_fm} -eq 0 ]]; then in_fm=1; else break; fi
       continue
@@ -51,51 +89,20 @@ if [[ -f "${SETTINGS_FILE}" ]]; then
   done < "${SETTINGS_FILE}"
 fi
 
-if [[ "${NUDGE_ENABLED}" == "false" || "${NUDGE_SEVERITY}" == "silent" ]]; then
+# Lowercase for case-insensitive comparison (bash 3.2 compatible — no ${var,,})
+NUDGE_ENABLED_LC=$(printf '%s' "${NUDGE_ENABLED}" | tr '[:upper:]' '[:lower:]')
+NUDGE_SEVERITY_LC=$(printf '%s' "${NUDGE_SEVERITY}" | tr '[:upper:]' '[:lower:]')
+
+if [[ "${NUDGE_ENABLED_LC}" == "false" || "${NUDGE_SEVERITY_LC}" == "silent" ]]; then
   exit 0
 fi
-
-# Read tool_input.command from stdin JSON. Use jq if present, else python3.
-INPUT=$(cat || true)
-if [[ -z "${INPUT}" ]]; then exit 0; fi
-
-CMD=""
-if command -v jq >/dev/null 2>&1; then
-  CMD=$(printf '%s' "${INPUT}" | jq -r '.tool_input.command // empty' 2>/dev/null || true)
-elif command -v python3 >/dev/null 2>&1; then
-  CMD=$(printf '%s' "${INPUT}" | python3 -c 'import json,sys;
-try:
-    d=json.load(sys.stdin)
-    print((d.get("tool_input") or {}).get("command",""))
-except Exception:
-    pass' 2>/dev/null || true)
-fi
-
-if [[ -z "${CMD}" ]]; then exit 0; fi
-
-# --- Guards ---------------------------------------------------------------
-
-# Skip help/version
-case "${CMD}" in
-  *"--help"*|*"--version"*|*" -h "*|*" -V "*) exit 0 ;;
-esac
-
-# Skip build chain commands at the start of the command line
-case "${CMD}" in
-  ./gradlew*|gradle\ *|mvn\ *|npm\ *|yarn\ *|pnpm\ *|make\ *|cargo\ *|"go build"*|"go test"*|"go run"*|node\ *|python\ *|python3\ *|pytest*|./mvnw*) exit 0 ;;
-esac
-
-# Skip if obviously targeting non-code paths only
-case "${CMD}" in
-  *"node_modules/"*|*"build/"*|*"target/"*|*".git/"*|*"dist/"*|*"out/"*|*".gradle/"*) exit 0 ;;
-esac
 
 # Helper: emit a nudge to stderr. Args: $1=server, $2=body.
 emit_nudge() {
   local server="$1"; shift
   local body="$*"
   >&2 printf '\n💡 MCP-tool nudge — consider %s instead of native Bash:\n%s\n' "${server}" "${body}"
-  if [[ "${NUDGE_SEVERITY}" == "verbose" ]]; then
+  if [[ "${NUDGE_SEVERITY_LC}" == "verbose" ]]; then
     >&2 printf '   (silence per-project: add `mcp_nudge.enabled: false` to %s frontmatter)\n' "${SETTINGS_FILE}"
   fi
 }
@@ -141,15 +148,28 @@ install_hint() {
 
 CODE_EXT_TOKEN_RE='[A-Za-z0-9_./-]+\.(java|kt|kts|ts|tsx|js|jsx|py|go|rb|rs|c|cc|cpp|h|hpp|cs|scala|swift|m|mm|php|dart|vue|svelte)'
 
+# Token-boundary regexes for cheap pattern detection (bash =~, no fork).
+# Note: bash regex (POSIX ERE) does NOT support \b; use explicit boundary classes instead.
+# Use ([[:space:]]|$) for trailing boundary and (^|[[:space:]]) for leading where needed.
+RE_GREP_RECURSIVE='^[[:space:]]*(rg([[:space:]]|$)|grep[[:space:]]+-[A-Za-z]*r[A-Za-z]*([[:space:]]|$)|grep[[:space:]]+--include)'
+# Data-extension targets: only skip when present AND no code-extension token also in command.
+RE_DATA_EXT='\.(log|txt|md|csv|json|yaml|yml|xml)([[:space:]]|$)'
+RE_CODE_EXT='\.(java|kt|kts|ts|tsx|js|jsx|py|go|rs|rb|c|cc|cpp|h|hpp|cs|scala|swift|m|mm|php|dart|vue|svelte|sh|gradle)([[:space:]]|$)'
+RE_FIND_HEAD='^[[:space:]]*find([[:space:]]|$)'
+RE_FIND_NAME_CODE="-name[[:space:]]+['\"]?\\*\\.(java|kt|kts|ts|tsx|js|jsx|py|go|rb|rs|cpp|cs|swift|php|dart)['\"]?"
+RE_GIT_GREP='^[[:space:]]*git[[:space:]]+grep([[:space:]]|$)'
+RE_SED_INPLACE='^[[:space:]]*sed[[:space:]]+(-i([[:space:]]|$)|-[a-zA-Z]*i[a-zA-Z]*([[:space:]]|$))'
+RE_MV_HEAD='^[[:space:]]*mv[[:space:]]+'
+
 nudged=0
 
 # 1) grep|rg targeting code (recursive grep, rg, or grep --include with code ext).
-#    Path guards above already eliminate grep on build/, node_modules/, etc.
-#    A grep target ending in .log/.txt/.md is also skipped (handled below).
+#    Skip ONLY if data-extension token present AND no code-extension token also present.
 if [[ ${nudged} -eq 0 ]]; then
-  if printf '%s' "${CMD}" | grep -Eq '^[[:space:]]*(rg\b|grep[[:space:]]+-[A-Za-z]*r[A-Za-z]*\b|grep[[:space:]]+--include)'; then
-    # Skip when the grep target is clearly a single non-code data file.
-    if ! printf '%s' "${CMD}" | grep -Eq '\.(log|txt|md|csv|json|yaml|yml|xml)([[:space:]]|$)'; then
+  if [[ "${CMD}" =~ $RE_GREP_RECURSIVE ]]; then
+    if [[ "${CMD}" =~ $RE_DATA_EXT ]] && ! [[ "${CMD}" =~ $RE_CODE_EXT ]]; then
+      :  # data-only target — skip
+    else
       if mcp_installed "codebase-memory-mcp"; then
         emit_nudge "codebase-memory-mcp.search_graph" \
 "   search_graph(project=\"<auto-detected>\", query=\"<your search>\")
@@ -168,8 +188,7 @@ fi
 
 # 2) find . -name '*.<code-ext>'
 if [[ ${nudged} -eq 0 ]]; then
-  if printf '%s' "${CMD}" | grep -Eq '^[[:space:]]*find\b' && \
-     printf '%s' "${CMD}" | grep -Eq -- "-name[[:space:]]+['\"]?\*\\.(java|kt|kts|ts|tsx|js|jsx|py|go|rb|rs|cpp|cs|swift|php|dart)['\"]?"; then
+  if [[ "${CMD}" =~ $RE_FIND_HEAD ]] && [[ "${CMD}" =~ $RE_FIND_NAME_CODE ]]; then
     if mcp_installed "codebase-memory-mcp"; then
       emit_nudge "codebase-memory-mcp.search_graph" \
 "   search_graph(project=\"<auto-detected>\", name_pattern=\"<glob>\")
@@ -185,7 +204,7 @@ fi
 
 # 3) git grep <symbol>
 if [[ ${nudged} -eq 0 ]]; then
-  if printf '%s' "${CMD}" | grep -Eq '^[[:space:]]*git[[:space:]]+grep\b'; then
+  if [[ "${CMD}" =~ $RE_GIT_GREP ]]; then
     if mcp_installed "serena jetbrains"; then
       emit_nudge "Serena find_referencing_symbols (or jetbrains.search_symbol)" \
 "   Symbol-aware: returns true references, not regex matches.
@@ -201,7 +220,7 @@ fi
 
 # 4) sed -i across files (heuristic: -i flag and >=2 path tokens with code ext)
 if [[ ${nudged} -eq 0 ]]; then
-  if printf '%s' "${CMD}" | grep -Eq '^[[:space:]]*sed[[:space:]]+(-i\b|-[a-zA-Z]*i[a-zA-Z]*\b)'; then
+  if [[ "${CMD}" =~ $RE_SED_INPLACE ]]; then
     # Count code-file path tokens in the command. >=2 → bulk edit territory.
     count=$(printf '%s' "${CMD}" | grep -oE "${CODE_EXT_TOKEN_RE}" | wc -l | tr -d ' ')
     if [[ "${count}" -ge 2 ]]; then
@@ -222,7 +241,7 @@ fi
 
 # 5) mv path/Foo.<ext> path/Bar.<ext> — rename of source file
 if [[ ${nudged} -eq 0 ]]; then
-  if printf '%s' "${CMD}" | grep -Eq '^[[:space:]]*mv[[:space:]]+'; then
+  if [[ "${CMD}" =~ $RE_MV_HEAD ]]; then
     # Two code-file tokens with same extension is the strong signal.
     files=$(printf '%s' "${CMD}" | grep -oE "${CODE_EXT_TOKEN_RE}" | head -2)
     fcount=$(printf '%s\n' "${files}" | grep -c . || true)
