@@ -33,7 +33,7 @@ owns it. Each layer has a different lifecycle, audience, and surface.
 | **HOWTO documents** | DaedalAI (`da_create_document(type=HOWTO)`) | Pre-plan surfacing | Pre-plan via `da_search_knowledge(query, topK=5, entityTypes=[DOCUMENT])` — BM25+vector hybrid; the corpus also covers WORK_ITEM and COMMENT, so scope to DOCUMENT here to keep the advisory-doc surfacing; falls back to `da_list_documents(type=HOWTO, tags=…)` for curated/tag-driven discovery | Per canonical recipe |
 | **DECISION documents** | DaedalAI (`da_create_document(type=DECISION)`) | Architectural history | On-demand via `da_list_documents(type=DECISION)` | Per architectural choice |
 | **Pre-edit hook** | `hooks/*.json` + hook script | Claude Code (before edit) | Before every Edit/Write/MultiEdit tool call | Rarely (policy changes) |
-| **CLAUDE.md** | Repo root (e.g. `daedalai-backend/CLAUDE.md`) | Claude Code (auto-loaded per-repo) | Session start in that repo | Per convention change |
+| **CLAUDE.md** | Repo root (e.g. `daedalai-backend/CLAUDE.md`); canonical version mirrored as a `CLAUDE_MD` DaedalAI document — one active row per project (`uk_da_documents_claude_md_singleton`); sync via `/daedalai-sync-claude-md` (DAEDA-274) | Claude Code (auto-loaded per-repo) | Session start in that repo; drift detected once per session by §1 | Per convention change |
 | **Hooks config** | `.claude-plugin/hooks.json` | Claude Code runtime | Plugin install | Rarely |
 
 **Routing rule**: Before adding content, ask "which layer?" — do NOT append
@@ -56,6 +56,38 @@ da_get_project(projectCode) → cache these for the session:
 
 Then da_list_modules(projectCode) for module awareness.
 If no match → da_ask("Which DaedalAI project is this repo?")
+
+### CLAUDE.md drift check (per session, after project resolution)
+
+Once the project is resolved, perform exactly ONE
+`da_check_claude_md_drift(projectCode)` call. Cache the result under a
+per-session key `claudeMdDriftChecked:{projectCode}` so subsequent WIs
+in the same session do NOT re-call. The probe is cheap (~5 ms) but the
+nudge would become noise if it fired on every Confirm-Then-Go.
+
+The probe returns `ClaudeMdDriftResult` with `drift ∈ {NONE, LOCAL_NEWER,
+REMOTE_NEWER, DIVERGED, LOCAL_MISSING, REMOTE_MISSING}`. Cache the full
+result, not just the state — the nudge format wants both hashes.
+
+**Drift-state handling**:
+
+| State | Orchestrate behaviour |
+|-------|----------------------|
+| `NONE` | Nothing to do. No nudge. |
+| `LOCAL_NEWER` / `REMOTE_NEWER` / `DIVERGED` / `LOCAL_MISSING` | Surface the 🟡 nudge banner (see §6) in every Confirm-Then-Go for the rest of the session, until the user runs `/daedalai-sync-claude-md` and the cache is invalidated. |
+| `REMOTE_MISSING` | **Do NOT auto-nudge.** Empty corpus is "nobody pushed yet", not a divergence the user broke. They can invoke `/daedalai-sync-claude-md` explicitly to seed if they want. |
+
+**Cache invalidation**: after the user runs `/daedalai-sync-claude-md`
+(or `da_init_or_update_project` with a CLAUDE.md flag) within the
+session, invalidate `claudeMdDriftChecked:{projectCode}` so the next WI
+re-probes and sees the resolved state.
+
+**Failure tolerance**: if the probe call fails (network, MCP down, etc.),
+log a single-line warning and continue WITHOUT nudging. CLAUDE.md drift
+is operational hygiene, not a hard gate.
+
+**No automatic writes from orchestrate.** Drift is reported, never
+resolved silently. The skill is the resolution surface.
 
 ## 2. Duplicate & Related Check (before creating)
 
@@ -248,9 +280,28 @@ can decide whether to install it before proceeding. Single-file Read +
 Edit operations don't need a substitution note — just say "single-file
 Edit — no MCP needed".
 
+**CLAUDE.md drift nudge (DAEDA-274)**: when §1's cached
+`claudeMdDriftChecked:{projectCode}` shows `LOCAL_NEWER` /
+`REMOTE_NEWER` / `DIVERGED` / `LOCAL_MISSING`, prepend a session-level
+banner above the WI summary block. The banner persists in every
+Confirm-Then-Go until the user runs `/daedalai-sync-claude-md` and
+the cache is invalidated. `NONE` and `REMOTE_MISSING` produce no
+banner.
+
+Banner format:
+```
+🟡 CLAUDE.md drift detected ({localHash[0:7]} ↔ {remoteHash[0:7]}, {drift})
+   — run /daedalai-sync-claude-md to resolve before relying on conventions.
+```
+
+For `LOCAL_MISSING` / `REMOTE_MISSING` (one hash is null), substitute
+the absent side with `—` (em-dash).
+
 For NORMAL/COMPLEX, present before executing:
 
 ```
+{🟡 CLAUDE.md drift banner — only when §1 cached state warrants it}
+
 [emoji] [Type]: [title]
 📍 Module: [module]
 📱 Screen: [screens]  ⚙️ Functions: [functions]
