@@ -35,6 +35,7 @@ on DaedalAI for the rationale.
 | `daedalai-capture-snippet` | Capture CODE_SNIPPET with language + framework/pattern tags |
 | `daedalai-bug-from-error` | Stack trace → BUG WI with dedup |
 | `daedalai-sprint-status` | Read-only markdown summary of a sprint |
+| `daedalai-sync-claude-md` | Reconcile local CLAUDE.md ↔ DaedalAI canonical doc; diff + confirm before overwriting |
 
 ### Slash commands
 
@@ -47,6 +48,7 @@ on DaedalAI for the rationale.
 | `/daedalai-snippet [hints]` | `daedalai-capture-snippet` |
 | `/daedalai-bug <error>` | `daedalai-bug-from-error` |
 | `/daedalai-sprint-status [label]` | `daedalai-sprint-status` |
+| `/daedalai-sync-claude-md [projectCode]` | `daedalai-sync-claude-md` |
 
 ### Agents
 
