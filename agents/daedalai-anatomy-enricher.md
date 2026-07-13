@@ -2,7 +2,7 @@
 name: daedalai-anatomy-enricher
 description: "Dispatch to generate one-line descriptions for a batch of source files in a DaedalAI-managed code project — used to seed or refresh module/function anatomy metadata. Cost-sensitive: runs on haiku with a hard budget cap (default 30 files per dispatch). Reads only the first 30–50 lines of each file. Returns a markdown table of {path, description}. Never edits code or DaedalAI records — the orchestrator decides what to persist."
 model: haiku
-tools: Read, Grep, Glob, mcp__daedalai-remote__da_list_modules, mcp__daedalai-remote__da_list_functions
+tools: Read, Grep, Glob, mcp__plugin_daedalai-lifecycle_daedalai-prod__da_list_modules, mcp__plugin_daedalai-lifecycle_daedalai-prod__da_list_functions
 color: "#64748b"
 ---
 

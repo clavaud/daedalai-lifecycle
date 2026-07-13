@@ -1,6 +1,6 @@
 # DaedalAI Lifecycle Plugin
 
-**v2.5.6** — Claude Code plugin that makes DaedalAI the automatic brain
+**v2.5.7** — Claude Code plugin that makes DaedalAI the automatic brain
 behind every action on a DaedalAI-managed project — code and non-code
 alike.
 
@@ -96,9 +96,11 @@ state. No clientId or callbackPort ships with the plugin.
 **If you already have a `daedalai-remote` or `daedalai-prod` in your
 own `.mcp.json`**: Claude Code will load both, and the tool lists
 will appear twice under different server prefixes. Disable whichever
-is redundant via `/mcp`. The plugin-bundled entry is optional — the
-plugin works against any server named `daedalai-*` that exposes the
-DaedalAI MCP tool surface.
+is redundant via `/mcp`. Note: the orchestrate skill works against any
+connected `daedalai-*` server, but the bundled specialist **agents**
+allowlist the plugin's own server specifically
+(`mcp__plugin_daedalai-lifecycle_daedalai-prod__*`), so keep the
+plugin-bundled entry enabled when dispatching them.
 
 ## Installation
 
@@ -134,9 +136,9 @@ cp -r tools/claude-plugins/daedalai-lifecycle/.claude-plugin ~/.claude/plugins/d
 Or symlink the cache for auto-sync:
 
 ```bash
-rm -rf ~/.claude/plugins/cache/daedalai-lifecycle/daedalai-lifecycle/2.5.6
+rm -rf ~/.claude/plugins/cache/daedalai-lifecycle/daedalai-lifecycle/2.5.7
 ln -sfn "$(pwd)/tools/claude-plugins/daedalai-lifecycle" \
-  ~/.claude/plugins/cache/daedalai-lifecycle/daedalai-lifecycle/2.5.6
+  ~/.claude/plugins/cache/daedalai-lifecycle/daedalai-lifecycle/2.5.7
 ```
 
 ### Verify installation
@@ -232,7 +234,7 @@ negative) against the hook script. Run from anywhere:
 ```
 daedalai-lifecycle/
 ├── .claude-plugin/
-│   ├── plugin.json          # Plugin metadata (version 2.5.6)
+│   ├── plugin.json          # Plugin metadata (version 2.5.7)
 │   └── marketplace.json     # Distribution metadata
 ├── .mcp.json                # Bundled MCP server: daedalai-prod
 ├── hooks/
@@ -292,6 +294,20 @@ daedalai-lifecycle/
   QG, no composite-build or worktree assumptions.
 
 ## Changelog
+
+### 2.5.7 (2026-07-13) — DAEDA-728 agent server-alias fix
+
+- **Fixed the dispatched specialist agents' MCP tool allowlists.** The 5
+  agents (bug-triage, spec-writer, lesson-scribe, test-gatekeeper,
+  anatomy-enricher) referenced a stale `mcp__daedalai-remote__da_*`
+  server namespace that never resolved to the plugin's bundled
+  `daedalai-prod` server — so a dispatched agent had no `da_*` tools at
+  all (worse under an MCP server serving them a restricted surface).
+  Repointed all 37 references to
+  `mcp__plugin_daedalai-lifecycle_daedalai-prod__da_*`. Combined with the
+  server-side per-client tool profiles (DAEDA-721 — the
+  `daedalai-lifecycle-plugin` OAuth client gets the full `da_*` surface),
+  dispatched agents resolve their tools again.
 
 ### 2.5.6 (2026-07-13) — DAEDA-723 plugin hook tax + slim-mode routing
 
