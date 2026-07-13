@@ -1,6 +1,6 @@
 # DaedalAI Lifecycle Plugin
 
-**v2.5.4** — Claude Code plugin that makes DaedalAI the automatic brain
+**v2.5.6** — Claude Code plugin that makes DaedalAI the automatic brain
 behind every action on a DaedalAI-managed project — code and non-code
 alike.
 
@@ -134,9 +134,9 @@ cp -r tools/claude-plugins/daedalai-lifecycle/.claude-plugin ~/.claude/plugins/d
 Or symlink the cache for auto-sync:
 
 ```bash
-rm -rf ~/.claude/plugins/cache/daedalai-lifecycle/daedalai-lifecycle/2.5.4
+rm -rf ~/.claude/plugins/cache/daedalai-lifecycle/daedalai-lifecycle/2.5.6
 ln -sfn "$(pwd)/tools/claude-plugins/daedalai-lifecycle" \
-  ~/.claude/plugins/cache/daedalai-lifecycle/daedalai-lifecycle/2.5.4
+  ~/.claude/plugins/cache/daedalai-lifecycle/daedalai-lifecycle/2.5.6
 ```
 
 ### Verify installation
@@ -232,7 +232,7 @@ negative) against the hook script. Run from anywhere:
 ```
 daedalai-lifecycle/
 ├── .claude-plugin/
-│   ├── plugin.json          # Plugin metadata (version 2.5.4)
+│   ├── plugin.json          # Plugin metadata (version 2.5.6)
 │   └── marketplace.json     # Distribution metadata
 ├── .mcp.json                # Bundled MCP server: daedalai-prod
 ├── hooks/
@@ -292,6 +292,30 @@ daedalai-lifecycle/
   QG, no composite-build or worktree assumptions.
 
 ## Changelog
+
+### 2.5.6 (2026-07-13) — DAEDA-723 plugin hook tax + slim-mode routing
+
+- **Shrunk the per-request hook token tax.** The `UserPromptSubmit`
+  reminder dropped from ~62 to ~28 tokens (paid on every dev-intent
+  message); the `SessionStart` block dropped from ~232 to ~91 tokens
+  (paid once per session) by removing the LESSON DISCIPLINE paragraph —
+  a verbatim duplicate of orchestrate §7, which still enforces it. The
+  matcher regex is unchanged, so orchestration still fires on the same
+  dev-intent phrasings.
+- **Slim-mode tool routing** (orchestrate §11): one authoritative rule —
+  when a direct `da_*` MCP call fails with `Unknown tool:
+  invalid_tool_name` (server running `MCP_SLIM_MODE=true`), retry the
+  same call as `inj_tool_invoke(toolName, args)`. Covers every `da_*`
+  call site across all main-context skills without rewriting them, so
+  the plugin works against a slim prod surface. (Dispatched agents are
+  tracked separately in DAEDA-728.)
+
+### 2.5.5 (2026-07-11) — DAEDA-274 CLAUDE.md sync
+
+- **`/daedalai-sync-claude-md` skill + slash command** and a
+  per-session CLAUDE.md drift check in orchestrate §1 that nudges when
+  the repo `CLAUDE.md` and the canonical `CLAUDE_MD` DaedalAI document
+  diverge.
 
 ### 2.5.4 (2026-05-09) — DAEDA-563 + DAEDA-564 MCP-tool discipline
 

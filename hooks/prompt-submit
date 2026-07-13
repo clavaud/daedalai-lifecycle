@@ -2,4 +2,4 @@
 # DaedalAI Lifecycle Plugin — UserPromptSubmit Hook
 # Sets CONTEXT for the shared emitter (run-hook).
 
-CONTEXT="REMINDER: This message may contain a development intent. You MUST invoke the daedalai-lifecycle:orchestrate skill BEFORE responding with any code changes, implementation, or technical work. Even small additions to in-progress work need orchestration."
+CONTEXT="REMINDER: likely dev intent — invoke the daedalai-lifecycle:orchestrate skill before any code or technical work."

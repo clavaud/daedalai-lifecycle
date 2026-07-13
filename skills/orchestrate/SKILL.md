@@ -815,6 +815,31 @@ Three-tier degradation per §3a:
    reporting). After: "DaedalAI was offline — create WI and import
    results when back."
 
+### Slim-mode tool routing (server UP, tools not advertised)
+
+The DaedalAI MCP server can run in **slim mode** (`MCP_SLIM_MODE=true`,
+prod default), advertising only the meta-tools (`inj_tool_search`,
+`inj_tool_schema`, `inj_tool_invoke`, `inj_tool_catalog`) plus a small
+allowlist. Under slim mode every direct `da_*` call in this and all
+`daedalai-lifecycle` skills is unadvertised and fails with:
+
+`MCP error -32602: Unknown tool: invalid_tool_name`
+
+**This is not an outage — the server is up.** Recovery is one rule for
+every `da_*` call (do not special-case call sites): retry the exact same
+call as `inj_tool_invoke(toolName=<the da_* name>, args=<the same JSON args>)`.
+
+- `da_get_work_item({itemKey:"DAEDA-1"})` → on Unknown-tool →
+  `inj_tool_invoke({toolName:"da_get_work_item", args:{itemKey:"DAEDA-1"}})`.
+- Once it fires in a session, route subsequent `da_*` calls through
+  `inj_tool_invoke` directly — skip the doomed first attempt.
+- If `inj_tool_invoke` is itself Unknown, the server is genuinely down →
+  treat as tier-3 above.
+- The invoke path validates against the tool's full schema, which can mark
+  filter params `required` — on `Missing required argument(s): X`, call
+  `inj_tool_schema(toolName)` and pass the named params (empty string for
+  optional filters you don't want to constrain).
+
 For refocusing an oversized umbrella WI, see the global HOWTO
 "Refocusing an oversized umbrella work item" (tags `umbrella,refocus`)
 surfaced pre-plan by the Lessons & HOWTOs pass.

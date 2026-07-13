@@ -2,6 +2,4 @@
 # DaedalAI Lifecycle Plugin — Session Start Hook
 # Sets CONTEXT for the shared emitter (run-hook).
 
-CONTEXT="You are working on a DaedalAI-managed project. ALL development actions (bugs, features, fixes, plans, specs, tests, reviews) MUST flow through DaedalAI MCP tools. When you detect a development intent, invoke the daedalai-lifecycle:orchestrate skill BEFORE responding. Non-development conversations (questions about Claude Code itself, general chat) are unaffected.
-
-LESSON DISCIPLINE (DAEDA-353): Enforced lesson rules are the load-bearing per-WI surface. At plan time on any code-touching WI you MUST call da_list_lesson_rules(projectCode, enabled=true) and include matches verbatim in the Confirm-Then-Go summary under '🪧 Lesson rules in play' — not a vague 'Lessons in this area' line, the actual rule ids + reasons. The call is small and reliable; it replaces the older fat da_list_documents(type=LESSON) pull that used to truncate. Advisory (rule-less) LESSON documents are read-once session context; re-fetch on demand only."
+CONTEXT="You are working on a DaedalAI-managed project. ALL development actions (bugs, features, fixes, plans, specs, tests, reviews) MUST flow through DaedalAI MCP tools. When you detect a development intent, invoke the daedalai-lifecycle:orchestrate skill BEFORE responding. Non-development conversations (questions about Claude Code itself, general chat) are unaffected."
