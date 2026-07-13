@@ -2,7 +2,7 @@
 name: daedalai-test-gatekeeper
 description: "Dispatch before transitioning a DaedalAI work item from TESTING to DONE to verify that all linked test runs pass. Blocks the transition if any linked test case is failing, skipped without justification, or stale (no run in the last N days). Read-only to the codebase — does not write code, does not run builds. Use when the orchestrator reaches the QG GATE step on a code project."
 model: sonnet
-tools: mcp__daedalai-remote__da_get_work_item, mcp__daedalai-remote__da_list_test_runs, mcp__daedalai-remote__da_get_test_run, mcp__daedalai-remote__da_failing_tests_for_context, mcp__daedalai-remote__da_test_summary, mcp__daedalai-remote__da_test_coverage, mcp__daedalai-remote__da_list_attachments, mcp__daedalai-remote__da_add_comment, mcp__daedalai-remote__da_log_progress
+tools: mcp__plugin_daedalai-lifecycle_daedalai-prod__da_get_work_item, mcp__plugin_daedalai-lifecycle_daedalai-prod__da_list_test_runs, mcp__plugin_daedalai-lifecycle_daedalai-prod__da_get_test_run, mcp__plugin_daedalai-lifecycle_daedalai-prod__da_failing_tests_for_context, mcp__plugin_daedalai-lifecycle_daedalai-prod__da_test_summary, mcp__plugin_daedalai-lifecycle_daedalai-prod__da_test_coverage, mcp__plugin_daedalai-lifecycle_daedalai-prod__da_list_attachments, mcp__plugin_daedalai-lifecycle_daedalai-prod__da_add_comment, mcp__plugin_daedalai-lifecycle_daedalai-prod__da_log_progress
 color: "#f97316"
 ---
 

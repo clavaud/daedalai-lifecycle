@@ -2,7 +2,7 @@
 name: daedalai-bug-triage
 description: "Dispatch when a user reports an error, exception, stack trace, or unexpected behavior in a DaedalAI-managed project and you need to create a BUG work item with duplicate detection. Handles error-fingerprint-based deduplication against open and recently-closed BUGs. Returns Created / Duplicate / Already-Resolved verdict. Never edits code — triage only."
 model: sonnet
-tools: Read, Grep, mcp__daedalai-remote__da_create_issue_from_error, mcp__daedalai-remote__da_list_work_items, mcp__daedalai-remote__da_get_work_item, mcp__daedalai-remote__da_add_comment, mcp__daedalai-remote__da_search, mcp__daedalai-remote__da_search_knowledge, mcp__daedalai-remote__da_list_modules, mcp__daedalai-remote__da_list_functions
+tools: Read, Grep, mcp__plugin_daedalai-lifecycle_daedalai-prod__da_create_issue_from_error, mcp__plugin_daedalai-lifecycle_daedalai-prod__da_list_work_items, mcp__plugin_daedalai-lifecycle_daedalai-prod__da_get_work_item, mcp__plugin_daedalai-lifecycle_daedalai-prod__da_add_comment, mcp__plugin_daedalai-lifecycle_daedalai-prod__da_search, mcp__plugin_daedalai-lifecycle_daedalai-prod__da_search_knowledge, mcp__plugin_daedalai-lifecycle_daedalai-prod__da_list_modules, mcp__plugin_daedalai-lifecycle_daedalai-prod__da_list_functions
 color: "#ef4444"
 ---
 

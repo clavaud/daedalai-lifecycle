@@ -1,7 +1,7 @@
 {
   "name": "daedalai-lifecycle",
   "description": "Project lifecycle orchestration through DaedalAI — universal manual for code and non-code projects, with specialist agents, workflow skills, slash commands, enforced lesson rules, and tag-matched HOWTOs",
-  "version": "2.5.6",
+  "version": "2.5.7",
   "author": {
     "name": "Alexandre Clavaud"
   },

@@ -2,7 +2,7 @@
 name: daedalai-spec-writer
 description: "Dispatch when a DaedalAI work item is in TODO or SPECS status, has hasSpec=false, and needs a structured SPEC document before implementation can begin. Useful for FEATURE/IMPROVEMENT/COMPLEX BUG work items where the orchestrator needs a written specification attached before moving to IN_PROGRESS. Produces a SPEC document attached to the WI and flips hasSpec=true."
 model: sonnet
-tools: Read, Grep, Glob, mcp__daedalai-remote__da_get_work_item, mcp__daedalai-remote__da_list_comments, mcp__daedalai-remote__da_list_attachments, mcp__daedalai-remote__da_create_document, mcp__daedalai-remote__da_update_document, mcp__daedalai-remote__da_attach, mcp__daedalai-remote__da_update_work_item, mcp__daedalai-remote__da_list_documents, mcp__daedalai-remote__da_search, mcp__daedalai-remote__da_search_knowledge
+tools: Read, Grep, Glob, mcp__plugin_daedalai-lifecycle_daedalai-prod__da_get_work_item, mcp__plugin_daedalai-lifecycle_daedalai-prod__da_list_comments, mcp__plugin_daedalai-lifecycle_daedalai-prod__da_list_attachments, mcp__plugin_daedalai-lifecycle_daedalai-prod__da_create_document, mcp__plugin_daedalai-lifecycle_daedalai-prod__da_update_document, mcp__plugin_daedalai-lifecycle_daedalai-prod__da_attach, mcp__plugin_daedalai-lifecycle_daedalai-prod__da_update_work_item, mcp__plugin_daedalai-lifecycle_daedalai-prod__da_list_documents, mcp__plugin_daedalai-lifecycle_daedalai-prod__da_search, mcp__plugin_daedalai-lifecycle_daedalai-prod__da_search_knowledge
 color: "#3b82f6"
 ---
 

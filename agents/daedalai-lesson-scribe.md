@@ -2,7 +2,7 @@
 name: daedalai-lesson-scribe
 description: "Dispatch when a correction, gotcha, or non-obvious mistake has just been fixed in a DaedalAI-managed project and the learning should be captured — either as an enforced Lesson Rule (when a regex trigger exists) or as an advisory Lesson document (when it's procedural). Extracts trigger/anti-pattern/correct-pattern from context, writes the rule, attaches it appropriately. Never edits code."
 model: sonnet
-tools: Read, Grep, mcp__daedalai-remote__da_create_lesson, mcp__daedalai-remote__da_create_document, mcp__daedalai-remote__da_check_lessons, mcp__daedalai-remote__da_list_documents, mcp__daedalai-remote__da_list_lesson_rules, mcp__daedalai-remote__da_attach, mcp__daedalai-remote__da_search, mcp__daedalai-remote__da_get_work_item
+tools: Read, Grep, mcp__plugin_daedalai-lifecycle_daedalai-prod__da_create_lesson, mcp__plugin_daedalai-lifecycle_daedalai-prod__da_create_document, mcp__plugin_daedalai-lifecycle_daedalai-prod__da_check_lessons, mcp__plugin_daedalai-lifecycle_daedalai-prod__da_list_documents, mcp__plugin_daedalai-lifecycle_daedalai-prod__da_list_lesson_rules, mcp__plugin_daedalai-lifecycle_daedalai-prod__da_attach, mcp__plugin_daedalai-lifecycle_daedalai-prod__da_search, mcp__plugin_daedalai-lifecycle_daedalai-prod__da_get_work_item
 color: "#eab308"
 ---
 
